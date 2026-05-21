@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Chat Scene Builder</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    background: #111;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+  }
+
+  .app {
+    width: 100%;
+    max-width: 430px;
+    min-height: 100vh;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ─── SCREENS ─── */
+  .screen { display: none; flex-direction: column; flex: 1; }
+  .screen.active { display: flex; }
+
+  /* ─── SHARED HEADER ─── */
+  .header {
+    background: #075E54;
+    color: #fff;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .header h1 { font-size: 18px; font-weight: 600; flex: 1; }
+  .header .back-btn {
+    background: none; border: none; color: #fff;
+    font-size: 22px; cursor: pointer; padding: 2px 6px;
+    line-height: 1;
+  }
+  .header .action-btn {
+    background: #128C7E; border: none; color: #fff;
+    padding: 7px 14px; border-radius: 20px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .header .action-btn:disabled {
+    opacity: 0.4; cursor: default;
+  }
+
+  /* ═══════════════════════════════════════
+     SCREEN 1 — SETUP
+  ═══════════════════════════════════════ */
+  #screen-setup .body {
+    flex: 1; overflow-y: auto; padding: 16px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+
+  .setup-hint {
+    background: #E8F5E9; border-left: 3px solid #4CAF50;
+    padding: 10px 12px; border-radius: 4px;
+    font-size: 13px; color: #333; line-height: 1.5;
+  }
+
+  .char-card {
+    background: #f8f8f8; border-radius: 12px;
+    padding: 14px; display: flex; align-items: center; gap: 12px;
+    border: 1.5px solid #e0e0e0;
+  }
+  .char-card.you-card { border-color: #4CAF50; background: #F1F8E9; }
+
+  .avatar-picker {
+    width: 54px; height: 54px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700; color: #fff;
+    cursor: pointer; flex-shrink: 0; position: relative;
+    overflow: hidden;
+  }
+  .avatar-picker img {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 50%;
+  }
+  .avatar-picker .camera-icon {
+    position: absolute; bottom: 0; right: 0;
+    background: rgba(0,0,0,0.45); border-radius: 50%;
+    width: 18px; height: 18px; font-size: 11px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .avatar-picker input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+  }
+
+  .char-inputs { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .char-inputs input {
+    border: 1px solid #ddd; border-radius: 8px;
+    padding: 8px 10px; font-size: 15px; outline: none;
+    background: #fff;
+  }
+  .char-inputs input:focus { border-color: #075E54; }
+
+  .you-badge {
+    font-size: 10px; font-weight: 700; background: #4CAF50;
+    color: #fff; padding: 2px 7px; border-radius: 10px;
+    align-self: flex-start;
+  }
+
+  .remove-char {
+    background: none; border: none; color: #bbb;
+    font-size: 20px; cursor: pointer; padding: 4px;
+    line-height: 1; flex-shrink: 0;
+  }
+  .remove-char:hover { color: #e53935; }
+
+  .add-char-btn {
+    background: none; border: 2px dashed #ccc;
+    border-radius: 12px; padding: 14px;
+    font-size: 14px; color: #888; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .add-char-btn:hover { border-color: #075E54; color: #075E54; }
+
+  /* ═══════════════════════════════════════
+     SCREEN 2 — COMPOSER
+  ═══════════════════════════════════════ */
+  #screen-composer {
+    background: #ECE5DD;
+  }
+
+  #screen-composer .wa-bg {
+    flex: 1; overflow-y: auto; padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 2px;
+    background-color: #ECE5DD;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M10 0 L20 10 L10 20 L0 10 Z' fill='none' stroke='%23d4c9bb' stroke-width='0.5'/%3E%3C/svg%3E");
+  }
+
+  .composer-input-area {
+    background: #F0F0F0;
+    padding: 8px;
+    flex-shrink: 0;
+  }
+
+  .char-chips {
+    display: flex; gap: 6px; overflow-x: auto;
+    padding-bottom: 8px; scrollbar-width: none;
+  }
+  .char-chips::-webkit-scrollbar { display: none; }
+
+  .chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px 5px 6px; border-radius: 20px;
+    border: 2px solid transparent; cursor: pointer;
+    font-size: 13px; font-weight: 500; white-space: nowrap;
+    background: #fff; transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .chip .chip-avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; color: #fff;
+    overflow: hidden; flex-shrink: 0;
+  }
+  .chip .chip-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .chip.selected { border-color: currentColor; background: #fff; }
+
+  .message-row {
+    display: flex; align-items: flex-end; gap: 6px;
+    margin-top: 2px;
+  }
+  .message-row textarea {
+    flex: 1; border: none; border-radius: 22px;
+    padding: 9px 14px; font-size: 15px; resize: none;
+    outline: none; font-family: inherit; line-height: 1.4;
+    max-height: 100px; background: #fff;
+  }
+  .send-btn {
+    width: 42px; height: 42px; border-radius: 50%;
+    background: #075E54; border: none; color: #fff;
+    font-size: 18px; cursor: pointer; display: flex;
+    align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .send-btn:disabled { background: #ccc; cursor: default; }
+
+  /* ─── Bubble (composer) ─── */
+  .bubble-wrap {
+    display: flex; flex-direction: column;
+    max-width: 78%; animation: bubblePop 0.25s cubic-bezier(0.34,1.56,0.64,1) both;
+  }
+  .bubble-wrap.outgoing { align-self: flex-end; align-items: flex-end; }
+  .bubble-wrap.incoming { align-self: flex-start; align-items: flex-start; }
+
+  @keyframes bubblePop {
+    from { transform: scale(0.7); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+
+  .sender-name {
+    font-size: 12px; font-weight: 600;
+    padding: 0 4px; margin-bottom: 2px;
+  }
+
+  .bubble {
+    padding: 6px 10px 4px;
+    border-radius: 8px 8px 8px 0;
+    font-size: 14.5px; line-height: 1.4;
+    position: relative; word-break: break-word;
+    max-width: 100%;
+  }
+  .bubble.outgoing {
+    background: #DCF8C6;
+    border-radius: 8px 8px 0 8px;
+  }
+  .bubble.incoming { background: #FFFFFF; }
+
+  /* tails */
+  .bubble::before {
+    content: ''; position: absolute;
+    bottom: 0; width: 0; height: 0;
+  }
+  .bubble.outgoing::before {
+    right: -7px;
+    border-left: 7px solid #DCF8C6;
+    border-top: 7px solid transparent;
+  }
+  .bubble.incoming::before {
+    left: -7px;
+    border-right: 7px solid #FFFFFF;
+    border-top: 7px solid transparent;
+  }
+
+  .bubble-footer {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 3px; margin-top: 3px;
+  }
+  .bubble-time { color: #667781; font-size: 11px; }
+  .bubble-ticks { color: #53BDEB; font-size: 11px; }
+
+  .day-divider {
+    align-self: center; background: rgba(225,221,216,0.92);
+    color: #667781; font-size: 12px;
+    padding: 4px 12px; border-radius: 8px; margin: 8px 0;
+  }
+
+  /* ─── delete message ─── */
+  .msg-delete {
+    opacity: 0; background: none; border: none;
+    color: #e53935; font-size: 16px; cursor: pointer;
+    padding: 2px 4px; transition: opacity 0.15s; align-self: center;
+  }
+  .bubble-wrap:hover + .msg-delete,
+  .msg-delete:hover { opacity: 1; }
+
+  /* ═══════════════════════════════════════
+     SCREEN 3 — PREVIEW
+  ═══════════════════════════════════════ */
+  #screen-preview { background: #ECE5DD; }
+
+  #screen-preview .wa-bg {
+    flex: 1; overflow-y: auto; padding: 8px 10px;
+    display: flex; flex-direction: column; gap: 2px;
+    background-color: #ECE5DD;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Cpath d='M10 0 L20 10 L10 20 L0 10 Z' fill='none' stroke='%23d4c9bb' stroke-width='0.5'/%3E%3C/svg%3E");
+  }
+
+  /* typing indicator */
+  .typing-indicator {
+    display: flex; align-items: center; gap: 4px;
+    background: #fff; padding: 10px 14px;
+    border-radius: 8px 8px 8px 0; max-width: 70px;
+    align-self: flex-start;
+    position: relative;
+  }
+  .typing-indicator::before {
+    content: ''; position: absolute; bottom: 0; left: -7px;
+    border-right: 7px solid #fff; border-top: 7px solid transparent;
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #90A4AE; animation: dotBounce 0.8s infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes dotBounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30%           { transform: translateY(-5px); }
+  }
+
+  /* player controls */
+  .player-controls {
+    background: #075E54; padding: 12px 16px;
+    flex-shrink: 0; display: flex; flex-direction: column; gap: 10px;
+  }
+
+  .progress-row { display: flex; align-items: center; gap: 10px; }
+  .progress-bar {
+    flex: 1; height: 4px; background: rgba(255,255,255,0.3);
+    border-radius: 2px; cursor: pointer; position: relative;
+  }
+  .progress-fill {
+    height: 100%; background: #fff; border-radius: 2px;
+    transition: width 0.1s linear;
+  }
+  .progress-label { color: rgba(255,255,255,0.8); font-size: 12px; white-space: nowrap; }
+
+  .controls-row { display: flex; align-items: center; justify-content: space-between; }
+  .play-btn {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: #fff; border: none; font-size: 20px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .speed-btns { display: flex; gap: 4px; }
+  .speed-btn {
+    background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+    color: #fff; font-size: 12px; padding: 5px 9px;
+    border-radius: 14px; cursor: pointer;
+  }
+  .speed-btn.active { background: #fff; color: #075E54; font-weight: 700; }
+
+  .export-note {
+    background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.85);
+    font-size: 12px; text-align: center; padding: 8px 12px;
+    border-radius: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════════ SCREEN 1: SETUP ══════════════════ -->
+  <div id="screen-setup" class="screen active">
+    <div class="header">
+      <h1>Characters</h1>
+      <button class="action-btn" id="go-compose-btn" disabled>Next →</button>
+    </div>
+    <div class="body" id="char-list">
+      <div class="setup-hint">
+        The <strong>first character</strong> is "You" — green bubbles, right side.<br>
+        Everyone else receives messages on the left.
+      </div>
+      <!-- cards injected here -->
+    </div>
+    <div style="padding:12px 16px; flex-shrink:0;">
+      <button class="add-char-btn" id="add-char-btn">＋ Add character</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════ SCREEN 2: COMPOSER ══════════════════ -->
+  <div id="screen-composer" class="screen">
+    <div class="header" style="background:#075E54;">
+      <button class="back-btn" id="compose-back">‹</button>
+      <div id="compose-header-avatar" style="width:34px;height:34px;border-radius:50%;background:#128C7E;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:14px;overflow:hidden;flex-shrink:0;"></div>
+      <div style="flex:1;">
+        <div id="compose-header-title" style="font-size:16px;font-weight:600;">Group chat</div>
+        <div style="font-size:12px;opacity:0.8;" id="compose-header-sub"></div>
+      </div>
+      <button class="action-btn" id="go-preview-btn" disabled>Preview</button>
+    </div>
+    <div class="wa-bg" id="compose-messages"></div>
+    <div class="composer-input-area">
+      <div class="char-chips" id="char-chips"></div>
+      <div class="message-row">
+        <textarea id="msg-input" rows="1" placeholder="Message…"></textarea>
+        <button class="send-btn" id="send-btn" disabled>➤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ SCREEN 3: PREVIEW ══════════════════ -->
+  <div id="screen-preview" class="screen">
+    <div class="header">
+      <button class="back-btn" id="preview-back">‹</button>
+      <div id="preview-header-avatar" style="width:34px;height:34px;border-radius:50%;background:#128C7E;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:14px;overflow:hidden;flex-shrink:0;"></div>
+      <div style="flex:1;">
+        <div id="preview-header-title" style="font-size:16px;font-weight:600;">Group chat</div>
+        <div style="font-size:12px;opacity:0.8;" id="preview-header-sub"></div>
+      </div>
+    </div>
+    <div class="wa-bg" id="preview-messages"></div>
+    <div class="player-controls">
+      <div class="progress-row">
+        <div class="progress-bar" id="progress-bar">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+        <span class="progress-label" id="progress-label">0 / 0</span>
+      </div>
+      <div class="controls-row">
+        <div class="speed-btns" id="speed-btns">
+          <button class="speed-btn" data-speed="0.5">0.5×</button>
+          <button class="speed-btn active" data-speed="1">1×</button>
+          <button class="speed-btn" data-speed="1.5">1.5×</button>
+          <button class="speed-btn" data-speed="2">2×</button>
+        </div>
+        <button class="play-btn" id="play-btn">▶</button>
+        <div style="width:80px;"></div><!-- spacer for centering play btn -->
+      </div>
+      <div class="export-note">📱 MP4 export available in the Android app</div>
+    </div>
+  </div>
+
+</div>
+
+<input type="file" id="avatar-file-input" accept="image/*" style="display:none">
+
+<script>
+// ─── STATE ───────────────────────────────────────────────────────────────────
+const state = {
+  characters: [],
+  messages: [],
+  selectedCharId: null,
+  playbackIndex: 0,
+  isPlaying: false,
+  playSpeed: 1,
+};
+
+let playTimer = null;
+let avatarTargetId = null; // which character's avatar is being picked
+
+// ─── COLORS ──────────────────────────────────────────────────────────────────
+const PALETTE = [
+  ['#00897B', '#4DB6AC'],
+  ['#1976D2', '#64B5F6'],
+  ['#7B1FA2', '#CE93D8'],
+  ['#C62828', '#EF9A9A'],
+  ['#F57F17', '#FFE082'],
+  ['#2E7D32', '#A5D6A7'],
+  ['#AD1457', '#F48FB1'],
+  ['#4527A0', '#9FA8DA'],
+];
+
+function colorForIndex(i) {
+  return PALETTE[i % PALETTE.length];
+}
+
+function initials(name) {
+  return name.trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+}
+
+function genId() {
+  return Math.random().toString(36).slice(2, 9);
+}
+
+function nowTime() {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// ─── SCREEN NAVIGATION ───────────────────────────────────────────────────────
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+}
+
+// ─── SOUND ───────────────────────────────────────────────────────────────────
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(freqStart, freqEnd, duration) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = 'sine';
+  const now = audioCtx.currentTime;
+  osc.frequency.setValueAtTime(freqStart, now);
+  osc.frequency.linearRampToValueAtTime(freqEnd, now + duration / 1000);
+  gain.gain.setValueAtTime(0.18, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration / 1000);
+  osc.start(now);
+  osc.stop(now + duration / 1000);
+}
+
+function playSendSound() {
+  playTone(880, 1100, 120);
+}
+
+function playReceiveSound() {
+  playTone(1100, 880, 90);
+  setTimeout(() => playTone(880, 750, 90), 95);
+}
+
+// ─── BUBBLE HTML ─────────────────────────────────────────────────────────────
+function buildBubbleHTML(msg, showSender = true) {
+  const cls = msg.isOutgoing ? 'outgoing' : 'incoming';
+  const senderHTML = (!msg.isOutgoing && showSender)
+    ? `<div class="sender-name" style="color:${msg.charColor}">${escHtml(msg.charName)}</div>`
+    : '';
+  const ticksHTML = msg.isOutgoing ? `<span class="bubble-ticks">✓✓</span>` : '';
+  return `
+    <div class="bubble-wrap ${cls}">
+      ${senderHTML}
+      <div class="bubble ${cls}">
+        ${escHtml(msg.text)}
+        <div class="bubble-footer">
+          <span class="bubble-time">${msg.time}</span>
+          ${ticksHTML}
+        </div>
+      </div>
+    </div>`;
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ─── SETUP SCREEN ────────────────────────────────────────────────────────────
+function renderSetup() {
+  const list = document.getElementById('char-list');
+  // keep hint
+  const hint = list.querySelector('.setup-hint');
+  list.innerHTML = '';
+  list.appendChild(hint);
+
+  state.characters.forEach((char, i) => {
+    const isYou = i === 0;
+    const [bg] = colorForIndex(i);
+    const card = document.createElement('div');
+    card.className = 'char-card' + (isYou ? ' you-card' : '');
+    card.innerHTML = `
+      <div class="avatar-picker" style="background:${bg}" data-id="${char.id}">
+        ${char.avatar
+          ? `<img src="${char.avatar}" alt="">`
+          : `<span>${initials(char.name || '?')}</span>`}
+        <span class="camera-icon">📷</span>
+        <input type="file" accept="image/*" data-id="${char.id}">
+      </div>
+      <div class="char-inputs">
+        ${isYou ? '<span class="you-badge">YOU</span>' : ''}
+        <input type="text" placeholder="${isYou ? 'Your name' : 'Character name'}"
+               value="${escHtml(char.name)}" data-id="${char.id}" maxlength="30">
+      </div>
+      ${isYou ? '<div style="width:28px"></div>' : `<button class="remove-char" data-id="${char.id}" title="Remove">×</button>`}
+    `;
+    list.appendChild(card);
+  });
+
+  updateSetupNav();
+  bindSetupEvents();
+}
+
+function updateSetupNav() {
+  const valid = state.characters.length >= 2 &&
+    state.characters.every(c => c.name.trim().length > 0);
+  document.getElementById('go-compose-btn').disabled = !valid;
+}
+
+function bindSetupEvents() {
+  // name inputs
+  document.querySelectorAll('.char-inputs input').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const id = e.target.dataset.id;
+      const char = state.characters.find(c => c.id === id);
+      if (char) { char.name = e.target.value; updateSetupNav(); renderSetup(); }
+    });
+  });
+
+  // remove
+  document.querySelectorAll('.remove-char').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const id = e.target.dataset.id;
+      state.characters = state.characters.filter(c => c.id !== id);
+      renderSetup();
+    });
+  });
+
+  // avatar file inputs
+  document.querySelectorAll('.avatar-picker input[type=file]').forEach(inp => {
+    inp.addEventListener('change', e => {
+      const id = e.target.dataset.id;
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const char = state.characters.find(c => c.id === id);
+        if (char) { char.avatar = ev.target.result; renderSetup(); }
+      };
+      reader.readAsDataURL(file);
+    });
+  });
+}
+
+document.getElementById('add-char-btn').addEventListener('click', () => {
+  const i = state.characters.length;
+  state.characters.push({ id: genId(), name: '', color: colorForIndex(i)[0], avatar: null });
+  renderSetup();
+  // focus new name input
+  const inputs = document.querySelectorAll('.char-inputs input');
+  inputs[inputs.length - 1]?.focus();
+});
+
+document.getElementById('go-compose-btn').addEventListener('click', () => {
+  // update colors from current palette positions
+  state.characters.forEach((c, i) => { c.color = colorForIndex(i)[0]; });
+  state.selectedCharId = state.characters[0].id;
+  renderComposer();
+  showScreen('composer');
+});
+
+// ─── COMPOSER SCREEN ─────────────────────────────────────────────────────────
+function renderComposer() {
+  // header
+  const names = state.characters.map(c => c.name).join(', ');
+  document.getElementById('compose-header-title').textContent = 'Group chat';
+  document.getElementById('compose-header-sub').textContent = names;
+
+  const ha = document.getElementById('compose-header-avatar');
+  const first = state.characters[0];
+  if (first.avatar) {
+    ha.innerHTML = `<img src="${first.avatar}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+  } else {
+    ha.textContent = initials(first.name);
+    ha.style.background = first.color;
+  }
+
+  renderChips();
+  renderComposerMessages();
+}
+
+function renderChips() {
+  const container = document.getElementById('char-chips');
+  container.innerHTML = '';
+  state.characters.forEach(char => {
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (char.id === state.selectedCharId ? ' selected' : '');
+    chip.style.color = char.color;
+    const avatarHTML = char.avatar
+      ? `<img src="${char.avatar}" style="width:100%;height:100%;object-fit:cover;">`
+      : `<span style="background:${char.color}">${initials(char.name)}</span>`;
+    chip.innerHTML = `<div class="chip-avatar" style="background:${char.avatar ? 'transparent' : char.color}">${avatarHTML}</div>${escHtml(char.name)}`;
+    chip.addEventListener('click', () => {
+      state.selectedCharId = char.id;
+      renderChips();
+    });
+    container.appendChild(chip);
+  });
+}
+
+function renderComposerMessages() {
+  const container = document.getElementById('compose-messages');
+  container.innerHTML = '';
+  state.messages.forEach((msg, idx) => {
+    const wrap = document.createElement('div');
+    // show sender name if previous msg was from different char
+    const showSender = !msg.isOutgoing &&
+      (idx === 0 || state.messages[idx - 1].charId !== msg.charId);
+    wrap.innerHTML = buildBubbleHTML(msg, showSender);
+
+    const del = document.createElement('button');
+    del.className = 'msg-delete';
+    del.title = 'Delete';
+    del.textContent = '✕';
+    del.addEventListener('click', () => {
+      state.messages = state.messages.filter(m => m.id !== msg.id);
+      renderComposerMessages();
+      updatePreviewBtn();
+    });
+
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '4px';
+    if (msg.isOutgoing) {
+      row.appendChild(del);
+      row.appendChild(wrap);
+    } else {
+      row.appendChild(wrap);
+      row.appendChild(del);
+    }
+    container.appendChild(row);
+  });
+  container.scrollTop = container.scrollHeight;
+}
+
+function updatePreviewBtn() {
+  document.getElementById('go-preview-btn').disabled = state.messages.length === 0;
+}
+
+// send message
+const msgInput = document.getElementById('msg-input');
+const sendBtn = document.getElementById('send-btn');
+
+msgInput.addEventListener('input', () => {
+  sendBtn.disabled = msgInput.value.trim().length === 0;
+  msgInput.style.height = 'auto';
+  msgInput.style.height = Math.min(msgInput.scrollHeight, 100) + 'px';
+});
+
+msgInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
+});
+
+sendBtn.addEventListener('click', doSend);
+
+function doSend() {
+  const text = msgInput.value.trim();
+  if (!text || !state.selectedCharId) return;
+  const char = state.characters.find(c => c.id === state.selectedCharId);
+  if (!char) return;
+  const isOutgoing = state.characters.indexOf(char) === 0;
+  const msg = {
+    id: genId(),
+    charId: char.id,
+    charName: char.name,
+    charColor: char.color,
+    charAvatar: char.avatar,
+    text,
+    time: nowTime(),
+    isOutgoing,
+  };
+  state.messages.push(msg);
+  msgInput.value = '';
+  msgInput.style.height = 'auto';
+  sendBtn.disabled = true;
+  isOutgoing ? playSendSound() : playReceiveSound();
+  renderComposerMessages();
+  updatePreviewBtn();
+}
+
+document.getElementById('compose-back').addEventListener('click', () => {
+  showScreen('setup');
+});
+
+document.getElementById('go-preview-btn').addEventListener('click', () => {
+  resetPreview();
+  renderPreviewHeader();
+  showScreen('preview');
+});
+
+// ─── PREVIEW SCREEN ──────────────────────────────────────────────────────────
+function renderPreviewHeader() {
+  const names = state.characters.map(c => c.name).join(', ');
+  document.getElementById('preview-header-title').textContent = 'Group chat';
+  document.getElementById('preview-header-sub').textContent = names;
+
+  const ha = document.getElementById('preview-header-avatar');
+  const first = state.characters[0];
+  if (first.avatar) {
+    ha.innerHTML = `<img src="${first.avatar}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+  } else {
+    ha.textContent = initials(first.name);
+    ha.style.background = first.color;
+  }
+}
+
+function resetPreview() {
+  stopPlayback();
+  state.playbackIndex = 0;
+  document.getElementById('preview-messages').innerHTML = '';
+  updateProgressUI();
+}
+
+function updateProgressUI() {
+  const total = state.messages.length;
+  const done = state.playbackIndex;
+  document.getElementById('progress-fill').style.width = total ? (done / total * 100) + '%' : '0%';
+  document.getElementById('progress-label').textContent = `${done} / ${total}`;
+  document.getElementById('play-btn').textContent = state.isPlaying ? '⏸' : '▶';
+}
+
+function stopPlayback() {
+  if (playTimer) { clearTimeout(playTimer); playTimer = null; }
+  state.isPlaying = false;
+  document.getElementById('play-btn').textContent = '▶';
+}
+
+function startPlayback() {
+  if (state.playbackIndex >= state.messages.length) {
+    // restart
+    state.playbackIndex = 0;
+    document.getElementById('preview-messages').innerHTML = '';
+  }
+  state.isPlaying = true;
+  document.getElementById('play-btn').textContent = '⏸';
+  playNextMessage();
+}
+
+function playNextMessage() {
+  if (!state.isPlaying) return;
+  if (state.playbackIndex >= state.messages.length) {
+    stopPlayback();
+    updateProgressUI();
+    return;
+  }
+
+  const msg = state.messages[state.playbackIndex];
+  const container = document.getElementById('preview-messages');
+
+  if (msg.isOutgoing) {
+    appendPreviewBubble(msg, container);
+    playSendSound();
+    state.playbackIndex++;
+    updateProgressUI();
+    const pauseMs = 600 / state.playSpeed;
+    playTimer = setTimeout(playNextMessage, pauseMs);
+  } else {
+    // show typing indicator
+    const typingEl = document.createElement('div');
+    typingEl.className = 'typing-indicator';
+    typingEl.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+    container.appendChild(typingEl);
+    container.scrollTop = container.scrollHeight;
+
+    const typingMs = (1000 + msg.text.length * 30) / state.playSpeed;
+    playTimer = setTimeout(() => {
+      if (!state.isPlaying) return;
+      typingEl.remove();
+      appendPreviewBubble(msg, container);
+      playReceiveSound();
+      state.playbackIndex++;
+      updateProgressUI();
+      const pauseMs = 400 / state.playSpeed;
+      playTimer = setTimeout(playNextMessage, pauseMs);
+    }, typingMs);
+  }
+}
+
+function appendPreviewBubble(msg, container) {
+  const idx = state.messages.indexOf(msg);
+  const showSender = !msg.isOutgoing &&
+    (idx === 0 || state.messages[idx - 1].charId !== msg.charId);
+
+  const wrap = document.createElement('div');
+  wrap.innerHTML = buildBubbleHTML(msg, showSender);
+  container.appendChild(wrap.firstElementChild);
+  container.scrollTop = container.scrollHeight;
+}
+
+document.getElementById('play-btn').addEventListener('click', () => {
+  if (state.isPlaying) {
+    stopPlayback();
+    updateProgressUI();
+  } else {
+    startPlayback();
+  }
+});
+
+// speed buttons
+document.getElementById('speed-btns').addEventListener('click', e => {
+  const btn = e.target.closest('.speed-btn');
+  if (!btn) return;
+  state.playSpeed = parseFloat(btn.dataset.speed);
+  document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+});
+
+// progress bar click
+document.getElementById('progress-bar').addEventListener('click', e => {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const ratio = (e.clientX - rect.left) / rect.width;
+  const idx = Math.round(ratio * state.messages.length);
+  stopPlayback();
+  state.playbackIndex = idx;
+  // rebuild visible messages up to idx
+  const container = document.getElementById('preview-messages');
+  container.innerHTML = '';
+  state.messages.slice(0, idx).forEach(msg => appendPreviewBubble(msg, container));
+  updateProgressUI();
+});
+
+document.getElementById('preview-back').addEventListener('click', () => {
+  stopPlayback();
+  showScreen('composer');
+});
+
+// ─── BOOT ────────────────────────────────────────────────────────────────────
+// Start with two empty characters so the user immediately sees the pattern
+state.characters.push({ id: genId(), name: '', color: colorForIndex(0)[0], avatar: null });
+state.characters.push({ id: genId(), name: '', color: colorForIndex(1)[0], avatar: null });
+renderSetup();
+</script>
+</body>
+</html>

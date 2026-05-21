@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: letters-backend
+  namespace: homelab
+spec:
+  selector:
+    app: letters-backend
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: letters-frontend
+  namespace: homelab
+spec:
+  selector:
+    app: letters-frontend
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP

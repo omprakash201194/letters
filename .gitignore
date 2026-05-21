@@ -1,0 +1,22 @@
+# Build outputs
+backend/target/
+frontend/dist/
+frontend/node_modules/
+
+# Secrets — never commit
+**/k8s/secret.yaml
+**/k8s/letters-firebase-secret.yaml
+**/k8s/letters-db-secret.yaml
+backend/.env
+backend/firebase-service-account.json
+frontend/.env.local
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
