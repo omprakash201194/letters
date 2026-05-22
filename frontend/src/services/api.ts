@@ -59,6 +59,35 @@ export interface SaveScenePayload {
   messages: MessageDto[]
 }
 
+export interface LetterSummary {
+  id: string
+  recipient: string
+  subject: string | null
+  mood: string | null
+  letterDate: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LetterDetail {
+  id: string
+  recipient: string
+  subject: string | null
+  content: string | null
+  mood: string | null
+  letterDate: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SaveLetterPayload {
+  recipient: string
+  subject: string | null
+  content: string | null
+  mood: string | null
+  letterDate: string | null
+}
+
 // --- API calls ---
 
 export const scenesApi = {
@@ -76,4 +105,21 @@ export const scenesApi = {
 
   delete: (id: string): Promise<void> =>
     api.delete(`/scenes/${id}`).then(() => undefined),
+}
+
+export const lettersApi = {
+  list: (): Promise<LetterSummary[]> =>
+    api.get('/letters').then(r => r.data),
+
+  get: (id: string): Promise<LetterDetail> =>
+    api.get(`/letters/${id}`).then(r => r.data),
+
+  create: (payload: SaveLetterPayload): Promise<LetterDetail> =>
+    api.post('/letters', payload).then(r => r.data),
+
+  update: (id: string, payload: SaveLetterPayload): Promise<LetterDetail> =>
+    api.put(`/letters/${id}`, payload).then(r => r.data),
+
+  delete: (id: string): Promise<void> =>
+    api.delete(`/letters/${id}`).then(() => undefined),
 }

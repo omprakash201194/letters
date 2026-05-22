@@ -58,6 +58,27 @@ export function ScenesPage() {
         </div>
       </div>
 
+      {/* Tab bar */}
+      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', background: '#fff', flexShrink: 0 }}>
+        <div style={{
+          flex: 1, textAlign: 'center', padding: '10px 0',
+          borderBottom: '2px solid #075E54', color: '#075E54',
+          fontWeight: 600, fontSize: 14, cursor: 'default',
+        }}>
+          💬 Scenes
+        </div>
+        <div
+          style={{
+            flex: 1, textAlign: 'center', padding: '10px 0',
+            borderBottom: '2px solid transparent', color: '#9a8060',
+            fontWeight: 500, fontSize: 14, cursor: 'pointer',
+          }}
+          onClick={() => navigate('/letters')}
+        >
+          ✉️ Letters
+        </div>
+      </div>
+
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-4">
         {loading ? (
