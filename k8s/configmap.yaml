@@ -4,7 +4,7 @@ metadata:
   name: letters-config
   namespace: homelab
 data:
-  FIREBASE_PROJECT_ID: ""          # fill in your Firebase project ID
+  FIREBASE_PROJECT_ID: "kin-keeper-7a525"
   FIREBASE_CREDENTIALS_PATH: "/etc/firebase/firebase-service-account.json"
   DB_HOST: "postgres.homelab.svc.cluster.local"
   DB_PORT: "5432"
