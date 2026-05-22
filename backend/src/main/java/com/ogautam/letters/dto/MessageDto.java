@@ -16,6 +16,6 @@ public class MessageDto {
     @NotBlank
     private String text;
     private String time;
-    private boolean isOutgoing;
+    private boolean outgoing;
     private int orderIndex;
 }

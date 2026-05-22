@@ -31,7 +31,7 @@ export interface MessageDto {
   charAvatar: string | null
   text: string
   time: string
-  isOutgoing: boolean
+  outgoing: boolean
   orderIndex: number
 }
 

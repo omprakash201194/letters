@@ -162,7 +162,7 @@ export function SceneEditorPage() {
           setMessages(detail.messages.map(m => ({
             id: m.id, charId: m.charId, charName: m.charName,
             charColor: m.charColor, charAvatar: m.charAvatar,
-            text: m.text, time: m.time, isOutgoing: m.isOutgoing,
+            text: m.text, time: m.time, isOutgoing: m.outgoing,
           })))
           if (detail.characters.length > 0) setSelectedCharId(detail.characters[0].id)
         })
@@ -334,7 +334,7 @@ export function SceneEditorPage() {
         messages: messages.map((m, i) => ({
           id: m.id, charId: m.charId, charName: m.charName, charColor: m.charColor,
           charAvatar: m.charAvatar, text: m.text, time: m.time,
-          isOutgoing: m.isOutgoing, orderIndex: i,
+          outgoing: m.isOutgoing, orderIndex: i,
         })),
       }
       if (sceneId) {
