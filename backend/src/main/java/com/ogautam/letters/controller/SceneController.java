@@ -1,5 +1,6 @@
 package com.ogautam.letters.controller;
 
+import com.ogautam.letters.dto.PatchSceneNameRequest;
 import com.ogautam.letters.dto.SaveSceneRequest;
 import com.ogautam.letters.dto.SceneDetailDto;
 import com.ogautam.letters.dto.SceneSummaryDto;
@@ -55,6 +56,16 @@ public class SceneController {
             @PathVariable UUID id,
             @Valid @RequestBody SaveSceneRequest req) {
         return sceneService.updateScene(principal.getUid(), id, req)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PatchMapping("/{id}/name")
+    public ResponseEntity<SceneSummaryDto> renameScene(
+            @AuthenticationPrincipal FirebaseUserPrincipal principal,
+            @PathVariable UUID id,
+            @Valid @RequestBody PatchSceneNameRequest req) {
+        return sceneService.renameScene(principal.getUid(), id, req.getName())
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }

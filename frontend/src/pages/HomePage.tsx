@@ -106,6 +106,24 @@ export function HomePage() {
                 {user?.displayName ?? user?.email}
               </div>
               <button
+                onClick={() => {
+                  const current = localStorage.getItem('letters_pen_name') || user?.displayName || ''
+                  const next = prompt('Your pen name:', current)
+                  if (next !== null) {
+                    const val = next.trim() || user?.displayName || 'Anonymous'
+                    localStorage.setItem('letters_pen_name', val)
+                  }
+                  setMenuOpen(false)
+                }}
+                style={{
+                  width: '100%', textAlign: 'left', padding: '10px 14px',
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: 14, color: '#3d2b1f', borderBottom: '1px solid #f0e8d8',
+                }}
+              >
+                ✏️ Pen name
+              </button>
+              <button
                 onClick={() => signOut(auth)}
                 style={{
                   width: '100%', textAlign: 'left', padding: '10px 14px',
@@ -223,48 +241,50 @@ export function HomePage() {
                 <div
                   onClick={() => navigate('/scenes')}
                   style={{
-                    background: '#fff', border: '1px solid #e8e0d0', borderRadius: 14,
+                    background: 'linear-gradient(135deg, #f0faf0 0%, #e8f5e8 100%)',
+                    border: '1px solid #c8e6c8', borderRadius: 14,
                     padding: '18px 20px', cursor: 'pointer',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+                    boxShadow: '0 2px 8px rgba(7,94,84,0.08)',
                     display: 'flex', alignItems: 'center', gap: 14,
-                    transition: 'box-shadow 0.15s',
                   }}
                 >
                   <div style={{
-                    width: 48, height: 48, borderRadius: 12, background: '#e8f5e9',
+                    width: 48, height: 48, borderRadius: 12, background: '#075E54',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0,
+                    boxShadow: '0 2px 6px rgba(7,94,84,0.25)',
                   }}>💬</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 15, color: '#2d2010', marginBottom: 2 }}>Chat Scenes</div>
-                    <div style={{ fontSize: 13, color: '#a09080' }}>
+                    <div style={{ fontWeight: 600, fontSize: 15, color: '#1a3d2b', marginBottom: 2 }}>Chat Scenes</div>
+                    <div style={{ fontSize: 13, color: '#5a8a70' }}>
                       {loading ? '…' : `${scenes.length} scene${scenes.length !== 1 ? 's' : ''}`}
                     </div>
                   </div>
-                  <span style={{ fontSize: 20, color: '#d0c8bc' }}>›</span>
+                  <span style={{ fontSize: 20, color: '#a0c8b0' }}>›</span>
                 </div>
 
                 {/* Unsent Letters tile */}
                 <div
                   onClick={() => navigate('/letters')}
                   style={{
-                    background: '#fff', border: '1px solid #e8e0d0', borderRadius: 14,
+                    background: 'linear-gradient(135deg, #fdf8f0 0%, #f8f0e0 100%)',
+                    border: '1px solid #e2d0b0', borderRadius: 14,
                     padding: '18px 20px', cursor: 'pointer',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+                    boxShadow: '0 2px 8px rgba(92,74,58,0.08)',
                     display: 'flex', alignItems: 'center', gap: 14,
-                    transition: 'box-shadow 0.15s',
                   }}
                 >
                   <div style={{
-                    width: 48, height: 48, borderRadius: 12, background: '#fdf3e0',
+                    width: 48, height: 48, borderRadius: 12, background: '#5c4a3a',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0,
+                    boxShadow: '0 2px 6px rgba(92,74,58,0.25)',
                   }}>✉️</div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 15, color: '#2d2010', marginBottom: 2 }}>Unsent Letters</div>
-                    <div style={{ fontSize: 13, color: '#a09080' }}>
-                      {loading ? '…' : `${letters.length} letter${letters.length !== 1 ? 's' : ''}${letters.filter(l => isSealed(l.sealedUntil)).length > 0 ? ` · ${letters.filter(l => isSealed(l.sealedUntil)).length} sealed` : ''}`}
+                    <div style={{ fontWeight: 600, fontSize: 15, color: '#3d2b1f', marginBottom: 2 }}>Unsent Letters</div>
+                    <div style={{ fontSize: 13, color: '#9a7a5a' }}>
+                      {loading ? '…' : `${letters.length} letter${letters.length !== 1 ? 's' : ''}${letters.filter(l => isSealed(l.sealedUntil)).length > 0 ? ` · ${letters.filter(l => isSealed(l.sealedUntil)).length} sealed 🔒` : ''}`}
                     </div>
                   </div>
-                  <span style={{ fontSize: 20, color: '#d0c8bc' }}>›</span>
+                  <span style={{ fontSize: 20, color: '#c8a880' }}>›</span>
                 </div>
               </div>
 

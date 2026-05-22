@@ -14,6 +14,11 @@ const MOODS: Record<string, string> = {
   lonely: '🕊️',
 }
 
+function isSealed(sealedUntil: string | null): boolean {
+  if (!sealedUntil) return false
+  return new Date(sealedUntil) > new Date()
+}
+
 function formatDate(iso: string | null): string {
   if (!iso) return ''
   // iso is LocalDate: "2026-05-22"
@@ -123,13 +128,25 @@ export function LettersPage() {
 
               {/* Subject */}
               {letter.subject && (
-                <div style={{ fontFamily: 'Georgia, serif', fontWeight: 600, fontSize: 15, color: '#3d2b1f', marginBottom: 2 }}>
+                <div style={{ fontFamily: 'Georgia, serif', fontWeight: 600, fontSize: 15, color: '#3d2b1f', marginBottom: 4 }}>
                   {letter.subject}
                 </div>
               )}
               {!letter.subject && (
-                <div style={{ fontFamily: 'Georgia, serif', fontSize: 15, color: '#9a8060', fontStyle: 'italic' }}>
+                <div style={{ fontFamily: 'Georgia, serif', fontSize: 14, color: '#9a8060', fontStyle: 'italic', marginBottom: 4 }}>
                   (no subject)
+                </div>
+              )}
+
+              {/* Content preview */}
+              {!isSealed(letter.sealedUntil) && letter.contentPreview && (
+                <div style={{ fontSize: 13, color: '#8a7060', lineHeight: 1.5, fontFamily: 'Georgia, serif' }}>
+                  {letter.contentPreview}
+                </div>
+              )}
+              {isSealed(letter.sealedUntil) && (
+                <div style={{ fontSize: 12, color: '#b8a080', fontStyle: 'italic' }}>
+                  🔒 Opens {letter.sealedUntil ? formatDate(letter.sealedUntil) : ''}
                 </div>
               )}
 

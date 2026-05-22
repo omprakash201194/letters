@@ -75,11 +75,20 @@ public class LetterService {
         letter.setSealedUntil(req.getSealedUntil());
     }
 
+    private static final int PREVIEW_LENGTH = 120;
+
+    private String contentPreview(String content) {
+        if (content == null || content.isBlank()) return null;
+        String s = content.strip();
+        return s.length() <= PREVIEW_LENGTH ? s : s.substring(0, PREVIEW_LENGTH) + "…";
+    }
+
     private LetterSummaryDto toSummary(Letter letter) {
         LetterSummaryDto dto = new LetterSummaryDto();
         dto.setId(letter.getId());
         dto.setRecipient(letter.getRecipient());
         dto.setSubject(letter.getSubject());
+        dto.setContentPreview(contentPreview(letter.getContent()));
         dto.setMood(letter.getMood());
         dto.setLetterDate(letter.getLetterDate());
         dto.setSealedUntil(letter.getSealedUntil());

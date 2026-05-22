@@ -12,6 +12,7 @@ public class LetterSummaryDto {
     private String recipient;
     private String subject;
     private String mood;
+    private String contentPreview;
     private LocalDate letterDate;
     private LocalDate sealedUntil;
     private Instant createdAt;

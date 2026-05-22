@@ -63,6 +63,7 @@ export interface LetterSummary {
   id: string
   recipient: string
   subject: string | null
+  contentPreview: string | null
   mood: string | null
   letterDate: string | null
   sealedUntil: string | null
@@ -108,6 +109,9 @@ export const scenesApi = {
 
   delete: (id: string): Promise<void> =>
     api.delete(`/scenes/${id}`).then(() => undefined),
+
+  rename: (id: string, name: string): Promise<SceneSummary> =>
+    api.patch(`/scenes/${id}/name`, { name }).then(r => r.data),
 }
 
 export const lettersApi = {

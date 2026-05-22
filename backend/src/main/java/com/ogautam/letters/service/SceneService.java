@@ -62,6 +62,16 @@ public class SceneService {
     }
 
     @Transactional
+    public Optional<SceneSummaryDto> renameScene(String userId, UUID sceneId, String name) {
+        return sceneRepository.findByIdAndUserId(sceneId, userId).map(scene -> {
+            scene.setName(name);
+            sceneRepository.save(scene);
+            log.info("Renamed scene {} to '{}' for user {}", sceneId, name, userId);
+            return toSummary(scene);
+        });
+    }
+
+    @Transactional
     public boolean deleteScene(String userId, UUID sceneId) {
         return sceneRepository.findByIdAndUserId(sceneId, userId).map(scene -> {
             sceneRepository.delete(scene);
