@@ -17,7 +17,7 @@ import java.util.UUID;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/scenes")
+@RequestMapping("/scenes")
 public class SceneController {
 
     private final SceneService sceneService;
