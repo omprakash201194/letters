@@ -1,13 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { signOut } from 'firebase/auth'
-import { auth } from '@/lib/firebase'
 import { scenesApi, SceneSummary } from '@/services/api'
-import { useAuth } from '@/hooks/useAuth'
 
 export function ScenesPage() {
   const navigate = useNavigate()
-  const { user } = useAuth()
   const [scenes, setScenes] = useState<SceneSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -41,41 +37,13 @@ export function ScenesPage() {
     <div className="flex h-full flex-col bg-gray-50">
       {/* Header */}
       <div className="flex items-center justify-between bg-wa-green px-4 py-3 shadow">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">💬</span>
-          <h1 className="text-white font-semibold text-lg">Letters</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          {user?.photoURL && (
-            <img src={user.photoURL} alt="avatar" className="h-8 w-8 rounded-full" />
-          )}
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => signOut(auth)}
-            className="text-white/80 text-sm hover:text-white"
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
-
-      {/* Tab bar */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', background: '#fff', flexShrink: 0 }}>
-        <div style={{
-          flex: 1, textAlign: 'center', padding: '10px 0',
-          borderBottom: '2px solid #075E54', color: '#075E54',
-          fontWeight: 600, fontSize: 14, cursor: 'default',
-        }}>
-          💬 Scenes
-        </div>
-        <div
-          style={{
-            flex: 1, textAlign: 'center', padding: '10px 0',
-            borderBottom: '2px solid transparent', color: '#9a8060',
-            fontWeight: 500, fontSize: 14, cursor: 'pointer',
-          }}
-          onClick={() => navigate('/letters')}
-        >
-          ✉️ Letters
+            onClick={() => navigate('/')}
+            style={{ background: 'none', border: 'none', color: '#fff', fontSize: 22, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}
+          >‹</button>
+          <span className="text-2xl">💬</span>
+          <h1 className="text-white font-semibold text-lg">Chat Scenes</h1>
         </div>
       </div>
 

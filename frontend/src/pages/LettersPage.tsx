@@ -54,7 +54,7 @@ export function LettersPage() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/', { replace: false })}
             style={{ background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer', padding: 4 }}
           >
             ‹

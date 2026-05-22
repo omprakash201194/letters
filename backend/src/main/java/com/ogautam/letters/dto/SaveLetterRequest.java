@@ -18,4 +18,5 @@ public class SaveLetterRequest {
     private String mood;
 
     private LocalDate letterDate;
+    private LocalDate sealedUntil;
 }

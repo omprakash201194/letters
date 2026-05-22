@@ -65,6 +65,7 @@ export interface LetterSummary {
   subject: string | null
   mood: string | null
   letterDate: string | null
+  sealedUntil: string | null
   createdAt: string
   updatedAt: string
 }
@@ -76,6 +77,7 @@ export interface LetterDetail {
   content: string | null
   mood: string | null
   letterDate: string | null
+  sealedUntil: string | null
   createdAt: string
   updatedAt: string
 }
@@ -86,6 +88,7 @@ export interface SaveLetterPayload {
   content: string | null
   mood: string | null
   letterDate: string | null
+  sealedUntil: string | null
 }
 
 // --- API calls ---

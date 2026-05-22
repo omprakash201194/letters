@@ -43,6 +43,10 @@ public class Letter {
     @Column(name = "letter_date")
     private LocalDate letterDate;
 
+    // reason: null = not sealed; future date = time capsule, content withheld by frontend until date arrives
+    @Column(name = "sealed_until")
+    private LocalDate sealedUntil;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

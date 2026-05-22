@@ -14,6 +14,7 @@ public class LetterDetailDto {
     private String content;
     private String mood;
     private LocalDate letterDate;
+    private LocalDate sealedUntil;
     private Instant createdAt;
     private Instant updatedAt;
 }

@@ -72,6 +72,7 @@ public class LetterService {
         letter.setContent(req.getContent());
         letter.setMood(req.getMood());
         letter.setLetterDate(req.getLetterDate());
+        letter.setSealedUntil(req.getSealedUntil());
     }
 
     private LetterSummaryDto toSummary(Letter letter) {
@@ -81,6 +82,7 @@ public class LetterService {
         dto.setSubject(letter.getSubject());
         dto.setMood(letter.getMood());
         dto.setLetterDate(letter.getLetterDate());
+        dto.setSealedUntil(letter.getSealedUntil());
         dto.setCreatedAt(letter.getCreatedAt());
         dto.setUpdatedAt(letter.getUpdatedAt());
         return dto;
@@ -94,6 +96,7 @@ public class LetterService {
         dto.setContent(letter.getContent());
         dto.setMood(letter.getMood());
         dto.setLetterDate(letter.getLetterDate());
+        dto.setSealedUntil(letter.getSealedUntil());
         dto.setCreatedAt(letter.getCreatedAt());
         dto.setUpdatedAt(letter.getUpdatedAt());
         return dto;

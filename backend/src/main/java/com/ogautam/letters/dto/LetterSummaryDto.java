@@ -13,6 +13,7 @@ public class LetterSummaryDto {
     private String subject;
     private String mood;
     private LocalDate letterDate;
+    private LocalDate sealedUntil;
     private Instant createdAt;
     private Instant updatedAt;
 }
