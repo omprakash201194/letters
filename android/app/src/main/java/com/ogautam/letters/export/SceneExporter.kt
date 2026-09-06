@@ -3,12 +3,13 @@ package com.ogautam.letters.export
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.net.Uri
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
-import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.os.Environment
+import android.util.Log
 import com.ogautam.letters.audio.ToneSynth
 import com.ogautam.letters.data.entity.SceneMessageEntity
 import com.ogautam.letters.ui.scenes.chat.ChatRenderer
@@ -42,6 +43,28 @@ class SceneExporter(
         fun onProgress(fraction: Float)
     }
 
+    /**
+     * Writes to a document the user picked, which is where the file's name and location come
+     * from. The muxer is given the descriptor rather than a path: a document provider's Uri
+     * need not be a file this process can open by name.
+     */
+    fun export(
+        destination: Uri,
+        messages: List<SceneMessageEntity>,
+        speed: PlaySpeed = PlaySpeed.DEFAULT,
+        progress: Progress = Progress {},
+    ) {
+        require(messages.isNotEmpty()) { "a scene with no messages has nothing to export" }
+        val descriptor = context.contentResolver.openFileDescriptor(destination, "rw")
+            ?: error("that location could not be opened for writing")
+        descriptor.use {
+            encode(messages, speed, progress) {
+                MediaMuxer(it.fileDescriptor, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            }
+        }
+    }
+
+    /** Exports to a plain file. Used by the instrumented test, which has no document picker. */
     fun export(
         sceneName: String,
         messages: List<SceneMessageEntity>,
@@ -50,12 +73,28 @@ class SceneExporter(
     ): File {
         require(messages.isNotEmpty()) { "a scene with no messages has nothing to export" }
 
+        val output = outputFile(sceneName)
+        runCatching {
+            encode(messages, speed, progress) {
+                MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            }
+        }.onFailure {
+            output.delete()
+            throw it
+        }
+        return output
+    }
+
+    private fun encode(
+        messages: List<SceneMessageEntity>,
+        speed: PlaySpeed,
+        progress: Progress,
+        openMuxer: () -> MediaMuxer,
+    ) {
         val timeline = PlaybackTimeline(messages, speed)
         val durationMs = timeline.totalMs + VideoSpec.TAIL_MS
         val frameCount = ceil(durationMs * VideoSpec.FPS / 1_000.0).toInt()
-
-        val output = outputFile(sceneName)
-        val muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        val muxer = openMuxer()
 
         try {
             // Audio first, buffered whole: the muxer needs every track added before it
@@ -77,10 +116,8 @@ class SceneExporter(
             )
         } catch (error: Throwable) {
             runCatching { muxer.release() }
-            output.delete()
             throw error
         }
-        return output
     }
 
     // ── video ──────────────────────────────────────────────────────────────
@@ -93,7 +130,8 @@ class SceneExporter(
         progress: Progress,
         audio: EncodedAudio,
     ) {
-        val colorFormat = pickColorFormat()
+        val codec = MediaCodec.createEncoderByType(VideoSpec.VIDEO_MIME)
+        val colorFormat = pickColorFormat(codec)
         val format = MediaFormat.createVideoFormat(
             VideoSpec.VIDEO_MIME,
             VideoSpec.WIDTH,
@@ -104,10 +142,26 @@ class SceneExporter(
             setInteger(MediaFormat.KEY_FRAME_RATE, VideoSpec.FPS)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, VideoSpec.I_FRAME_INTERVAL_SECONDS)
         }
-
-        val codec = MediaCodec.createEncoderByType(VideoSpec.VIDEO_MIME)
         codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         codec.start()
+
+        // reason: the encoder's rows are padded to its own stride, and chroma starts after
+        // sliceHeight rows rather than after height. Assuming otherwise shears the picture
+        // and puts chroma in the wrong plane — a smeared, green frame.
+        val rowStride = codec.inputFormat.intOr(MediaFormat.KEY_STRIDE, VideoSpec.WIDTH)
+            .coerceAtLeast(VideoSpec.WIDTH)
+        val sliceHeight = codec.inputFormat.intOr(MediaFormat.KEY_SLICE_HEIGHT, VideoSpec.HEIGHT)
+            .coerceAtLeast(VideoSpec.HEIGHT)
+
+        // reason: codecs differ here more than anywhere else in this file, and a wrong
+        // guess shows up as a smeared green picture rather than an error. If an export ever
+        // looks wrong on a device, this line says what that device asked for.
+        Log.i(
+            TAG,
+            "encoding with ${codec.name}: colorFormat=$colorFormat, " +
+                "stride=$rowStride (width ${VideoSpec.WIDTH}), " +
+                "sliceHeight=$sliceHeight (height ${VideoSpec.HEIGHT})",
+        )
 
         val renderer = ChatRenderer(VideoSpec.WIDTH.toFloat(), VideoSpec.DENSITY) {
             avatarFor(it.charAvatarPath)
@@ -117,7 +171,7 @@ class SceneExporter(
         val bitmap = Bitmap.createBitmap(VideoSpec.WIDTH, VideoSpec.HEIGHT, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val pixels = IntArray(VideoSpec.WIDTH * VideoSpec.HEIGHT)
-        val yuv = ByteArray(YuvConverter.bufferSize(VideoSpec.WIDTH, VideoSpec.HEIGHT))
+        val yuv = ByteArray(YuvConverter.bufferSize(rowStride, sliceHeight))
 
         val info = MediaCodec.BufferInfo()
         var videoTrack = -1
@@ -142,7 +196,13 @@ class SceneExporter(
                                 VideoSpec.WIDTH, VideoSpec.HEIGHT,
                             )
                             YuvConverter.convert(
-                                pixels, VideoSpec.WIDTH, VideoSpec.HEIGHT, colorFormat, yuv,
+                                argb = pixels,
+                                width = VideoSpec.WIDTH,
+                                height = VideoSpec.HEIGHT,
+                                colorFormat = colorFormat,
+                                out = yuv,
+                                rowStride = rowStride,
+                                sliceHeight = sliceHeight,
                             )
                             codec.getInputBuffer(inputIndex)!!.apply { clear(); put(yuv) }
                             codec.queueInputBuffer(inputIndex, 0, yuv.size, presentationUs, 0)
@@ -207,21 +267,24 @@ class SceneExporter(
         )
     }
 
-    /** The first colour format this encoder and the converter both understand. */
-    private fun pickColorFormat(): Int {
-        val encoder = MediaCodecList(MediaCodecList.REGULAR_CODECS)
-            .codecInfos
-            .firstOrNull { info ->
-                info.isEncoder && info.supportedTypes.any { it.equals(VideoSpec.VIDEO_MIME, true) }
-            } ?: error("this device has no AVC encoder")
-
-        val supported = encoder
+    /**
+     * The first colour format this codec and the converter both understand.
+     *
+     * Asked of the codec that will actually encode, not of whichever encoder happens to
+     * come first in the system list — `createEncoderByType` need not return that one, and a
+     * colour format taken from a different codec is a guess.
+     */
+    private fun pickColorFormat(codec: MediaCodec): Int {
+        val supported = codec.codecInfo
             .getCapabilitiesForType(VideoSpec.VIDEO_MIME)
             .colorFormats
             .toSet()
 
         return YuvConverter.SUPPORTED.firstOrNull { it in supported }
-            ?: error("the AVC encoder wants a colour format this build cannot write")
+            ?: error(
+                "${codec.name} wants a colour format this build cannot write " +
+                    "(offers ${supported.joinToString()})",
+            )
     }
 
     // ── audio ──────────────────────────────────────────────────────────────
@@ -332,7 +395,12 @@ class SceneExporter(
         return File(directory, "${slug(sceneName)}-${System.currentTimeMillis()}.mp4")
     }
 
+    /** Optional keys are absent on plenty of codecs; the packed layout is the fallback. */
+    private fun MediaFormat.intOr(key: String, fallback: Int): Int =
+        if (containsKey(key)) getInteger(key).takeIf { it > 0 } ?: fallback else fallback
+
     companion object {
+        private const val TAG = "SceneExporter"
         private const val TIMEOUT_US = 10_000L
         private const val MAX_AUDIO_INPUT = 16_384
 

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import android.net.Uri
 import com.ogautam.letters.LettersApplication
 import com.ogautam.letters.audio.SceneTones
 import com.ogautam.letters.audio.TonePlayer
@@ -22,13 +23,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /** Where an export has got to. */
 sealed interface ExportState {
     data object Idle : ExportState
     data class Running(val fraction: Float) : ExportState
-    data class Done(val file: File) : ExportState
+    data class Done(val name: String, val destination: Uri) : ExportState
     data class Failed(val message: String) : ExportState
 }
 
@@ -146,7 +146,11 @@ class ScenePlayerViewModel(
      * Exports on the IO dispatcher: encoding is hundreds of frames of drawing and colour
      * conversion, and it must not be on the frame clock.
      */
-    fun export() {
+    /** The name the picker should suggest; the user changes it there if they want. */
+    fun suggestedFileName(): String =
+        "${SceneExporter.slug(_state.value.sceneName)}.mp4"
+
+    fun export(destination: Uri, displayName: String) {
         val exporter = exporter ?: return
         val current = _state.value
         if (current.export is ExportState.Running || current.messages.isEmpty()) return
@@ -156,7 +160,7 @@ class ScenePlayerViewModel(
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     exporter.export(
-                        sceneName = current.sceneName,
+                        destination = destination,
                         messages = current.messages,
                         speed = current.speed,
                     ) { fraction ->
@@ -167,7 +171,7 @@ class ScenePlayerViewModel(
             _state.update {
                 it.copy(
                     export = result.fold(
-                        onSuccess = ExportState::Done,
+                        onSuccess = { ExportState.Done(displayName, destination) },
                         onFailure = { error ->
                             ExportState.Failed(error.message ?: "the export could not finish")
                         },

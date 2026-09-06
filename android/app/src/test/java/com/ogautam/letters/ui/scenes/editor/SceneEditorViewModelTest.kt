@@ -221,6 +221,7 @@ class SceneEditorViewModelTest : DbTest() {
         val repo = repo()
         val saved = populated(repo)
         saved.save()
+        saved.awaitSaved()
         val id = repo.observeSummaries().first().single().id
 
         assertEquals(EditorStep.COMPOSER, viewModel(repo, id).awaitLoaded().step)

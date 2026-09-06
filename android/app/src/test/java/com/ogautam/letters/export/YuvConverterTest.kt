@@ -19,8 +19,67 @@ class YuvConverterTest {
     private fun ByteArray.u(index: Int) = this[index].toInt() and 0xFF
 
     @Test
-    fun `the buffer is one and a half bytes a pixel`() {
+    fun `the buffer is one and a half bytes a padded pixel`() {
         assertEquals(720 * 1280 * 3 / 2, YuvConverter.bufferSize(720, 1280))
+        // A codec that pads 720 rows to 768 needs the bigger buffer.
+        assertEquals(768 * 1280 * 3 / 2, YuvConverter.bufferSize(768, 1280))
+    }
+
+    /**
+     * The defect this guards: writing packed rows into an encoder buffer that pads them
+     * shears the picture a little further on every row and lands chroma in the wrong plane —
+     * a smeared, green frame. Nothing on the emulator caught it, because its encoder happens
+     * to want packed rows.
+     */
+    @Test
+    fun `a padded stride leaves the pad bytes alone and keeps rows aligned`() {
+        val width = 4
+        val height = 4
+        val rowStride = 8
+        val sliceHeight = 6
+        // Distinct rows: white on top, black below.
+        val pixels = IntArray(width * height) { index ->
+            if (index < width * 2) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
+        }
+
+        val out = ByteArray(YuvConverter.bufferSize(rowStride, sliceHeight))
+        YuvConverter.convert(pixels, width, height, semiPlanar, out, rowStride, sliceHeight)
+
+        // Each row starts a whole stride apart, not a whole width apart.
+        assertEquals(235, out.u(0 * rowStride))
+        assertEquals(235, out.u(1 * rowStride))
+        assertEquals(16, out.u(2 * rowStride))
+        assertEquals(16, out.u(3 * rowStride))
+        // The padding past the picture is never written.
+        (width until rowStride).forEach { assertEquals(0, out.u(it)) }
+    }
+
+    @Test
+    fun `chroma starts after sliceHeight rows, not after height`() {
+        val width = 4
+        val height = 4
+        val rowStride = 8
+        val sliceHeight = 6
+        val pixels = IntArray(width * height) { 0xFFFF0000.toInt() }
+
+        val out = ByteArray(YuvConverter.bufferSize(rowStride, sliceHeight))
+        YuvConverter.convert(pixels, width, height, semiPlanar, out, rowStride, sliceHeight)
+
+        // Red: U below neutral, V well above it — at the padded chroma offset.
+        val chromaStart = rowStride * sliceHeight
+        assertTrue("U was ${out.u(chromaStart)}", out.u(chromaStart) < 128)
+        assertTrue("V was ${out.u(chromaStart + 1)}", out.u(chromaStart + 1) > 200)
+        // Nothing was written where an unpadded layout would have put it.
+        assertEquals(0, out.u(rowStride * height))
+    }
+
+    @Test
+    fun `flexible is not offered, because its layout is not promised`() {
+        assertTrue(
+            YuvConverter.SUPPORTED.none {
+                it == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
+            },
+        )
     }
 
     @Test

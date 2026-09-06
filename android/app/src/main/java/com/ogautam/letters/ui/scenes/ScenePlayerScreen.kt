@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -45,13 +47,13 @@ import com.ogautam.letters.ui.common.HeaderButton
 import com.ogautam.letters.ui.common.ScreenHeader
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.graphics.Bitmap
 import com.ogautam.letters.ui.scenes.chat.ChatCanvas
 import com.ogautam.letters.ui.scenes.chat.ChatTheme
 import com.ogautam.letters.ui.scenes.chat.PlaySpeed
 import com.ogautam.letters.ui.theme.LettersPalette
-import androidx.core.content.FileProvider
-import java.io.File
 import kotlin.math.roundToInt
 
 /**
@@ -72,6 +74,14 @@ fun ScenePlayerScreen(
     ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // The user names the file and says where it goes; we write into what they picked.
+    val pickDestination = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("video/mp4"),
+    ) { uri ->
+        if (uri != null) viewModel.export(uri, displayNameOf(context, uri))
+    }
 
     LaunchedEffect(state.isPlaying) {
         if (!state.isPlaying) return@LaunchedEffect
@@ -109,7 +119,7 @@ fun ScenePlayerScreen(
             }
             HeaderButton(
                 label = if (state.export is ExportState.Running) "…" else "⬇ MP4",
-                onClick = viewModel::export,
+                onClick = { pickDestination.launch(viewModel.suggestedFileName()) },
                 enabled = state.export !is ExportState.Running && state.messages.isNotEmpty(),
             )
         }
@@ -130,20 +140,23 @@ fun ScenePlayerScreen(
         )
     }
 
-    val context = LocalContext.current
     ExportDialogs(
         state = state,
         onDismiss = viewModel::dismissExport,
-        onShare = { file -> shareVideo(context, file) },
+        onShare = { uri -> shareVideo(context, uri) },
     )
 }
 
-/**
- * Hands the file to another app through the FileProvider. The video lives in this app's own
- * external files directory, so a raw `file://` URI would be rejected.
- */
-private fun shareVideo(context: Context, file: File) {
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+/** The picked document's own name, so the dialog says what the user called it. */
+private fun displayNameOf(context: Context, uri: Uri): String =
+    context.contentResolver
+        .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        ?: uri.lastPathSegment
+        ?: "the scene"
+
+/** The Uri already came from a document provider, so it can be shared as it is. */
+private fun shareVideo(context: Context, uri: Uri) {
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "video/mp4"
         putExtra(Intent.EXTRA_STREAM, uri)
@@ -158,7 +171,7 @@ private fun shareVideo(context: Context, file: File) {
 private fun ExportDialogs(
     state: ScenePlayerUiState,
     onDismiss: () -> Unit,
-    onShare: (File) -> Unit,
+    onShare: (Uri) -> Unit,
 ) {
     when (val export = state.export) {
         is ExportState.Idle -> Unit
@@ -196,13 +209,13 @@ private fun ExportDialogs(
             title = { Text("Scene exported", color = LettersPalette.GreenInk) },
             text = {
                 Text(
-                    "Saved as ${export.file.name} (${export.file.length() / 1024} KB).",
+                    "Saved as ${export.name}.",
                     fontSize = 14.sp,
                     color = Color(0xFF555555),
                 )
             },
             confirmButton = {
-                TextButton(onClick = { onShare(export.file) }) {
+                TextButton(onClick = { onShare(export.destination) }) {
                     Text("Share", color = LettersPalette.Teal)
                 }
             },
