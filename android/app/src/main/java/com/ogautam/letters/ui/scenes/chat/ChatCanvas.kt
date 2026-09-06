@@ -37,21 +37,31 @@ fun ChatCanvas(
     modifier: Modifier = Modifier,
     avatarFor: (String?) -> Bitmap? = { null },
     onMessageTap: ((Int) -> Unit)? = null,
+    showInputBar: Boolean = true,
+    showUnsentGhosts: Boolean = false,
 ) {
     val density = LocalDensity.current.density
     var viewport by remember { mutableStateOf(IntSize.Zero) }
 
     // Rebuilding the renderer re-measures every bubble's text, so it is keyed on the only
     // things that change its measurements.
-    val renderer = remember(viewport.width, density) {
+    val renderer = remember(viewport.width, density, showInputBar, showUnsentGhosts) {
         if (viewport.width == 0) null else {
-            ChatRenderer(viewport.width.toFloat(), density) { avatarFor(it.charAvatarPath) }
+            ChatRenderer(
+                widthPx = viewport.width.toFloat(),
+                density = density,
+                avatarFor = { avatarFor(it.charAvatarPath) },
+                showInputBar = showInputBar,
+                showUnsentGhosts = showUnsentGhosts,
+            )
         }
     }
     renderer?.setMessages(messages)
 
     val contentHeight = renderer?.contentHeight(playback) ?: 0f
-    val maxScroll = max(0f, contentHeight - viewport.height)
+    // The input bar sits below the transcript, so it is not room the transcript can scroll into.
+    val transcriptHeight = renderer?.transcriptHeight(viewport.height.toFloat()) ?: 0f
+    val maxScroll = max(0f, contentHeight - transcriptHeight)
 
     var scrollY by remember { mutableFloatStateOf(0f) }
 
@@ -98,6 +108,7 @@ fun ChatCanvas(
 fun staticPlayback(messageCount: Int) =
     PlaybackState(
         visibleCount = messageCount,
+        playedCount = messageCount,
         typingIndex = null,
         msSinceLastBubble = ChatTheme.POP_DURATION_MS,
     )

@@ -1,7 +1,8 @@
 package com.ogautam.letters.data
 
 import com.ogautam.letters.data.entity.CharacterPalette
-import com.ogautam.letters.data.entity.SceneCharacterEntity
+import com.ogautam.letters.data.entity.CharacterEntity
+import com.ogautam.letters.data.entity.SceneCastEntity
 import com.ogautam.letters.data.entity.SceneEntity
 import com.ogautam.letters.data.entity.SceneMessageEntity
 import com.ogautam.letters.data.repository.SceneRepository
@@ -18,15 +19,22 @@ class SceneRepositoryTest : DbTest() {
 
     private fun repo() = SceneRepository(db.sceneDao(), clock)
 
-    private fun character(name: String, index: Int) = SceneCharacterEntity(
+    private fun character(name: String, index: Int) = CharacterEntity(
         id = "c$index",
-        sceneId = "",                       // assigned by the repository
         name = name,
         color = CharacterPalette.colorForIndex(index),
-        orderIndex = -1,                    // assigned by the repository
     )
 
-    private fun message(id: String, from: SceneCharacterEntity, text: String, outgoing: Boolean) =
+    /** Cast rows carry the scene id and the ordering; the repository assigns both. */
+    private fun castOf(vararg characters: CharacterEntity) = characters.map {
+        SceneCastEntity(sceneId = "", characterId = it.id, orderIndex = -1)
+    }
+
+    private suspend fun seedLibrary(vararg characters: CharacterEntity) {
+        db.characterDao().insertAll(characters.toList())
+    }
+
+    private fun message(id: String, from: CharacterEntity, text: String, outgoing: Boolean) =
         SceneMessageEntity(
             id = id,
             sceneId = "",
@@ -43,10 +51,11 @@ class SceneRepositoryTest : DbTest() {
         val you = character("You", 0)
         val priya = character("Priya", 1)
         val scene = SceneEntity(id = "s1", name = "The argument")
+        seedLibrary(you, priya)
 
         repo.create(
             scene = scene,
-            characters = listOf(you, priya),
+            cast = castOf(you, priya),
             messages = listOf(
                 message("m1", you, "are you up?", outgoing = true),
                 message("m2", priya, "barely", outgoing = false),
@@ -74,14 +83,30 @@ class SceneRepositoryTest : DbTest() {
     }
 
     @Test
-    fun `first character is the outgoing one`() = runTest {
+    fun `the first of the cast speaks as you unless a role says otherwise`() = runTest {
         val repo = repo()
         val loaded = repo.getWithContent(seedScene(repo))!!
 
         assertEquals("You", loaded.outgoingCharacter!!.name)
-        assertEquals(0, loaded.outgoingCharacter!!.orderIndex)
+        assertTrue(loaded.cast.first { it.characterId == "c0" }.outgoing)
+        assertFalse(loaded.cast.first { it.characterId == "c1" }.outgoing)
         assertTrue(loaded.messages.first { it.charName == "You" }.outgoing)
         assertFalse(loaded.messages.first { it.charName == "Priya" }.outgoing)
+    }
+
+    @Test
+    fun `the outgoing role can be given to someone other than the first`() = runTest {
+        val repo = repo()
+        val id = seedScene(repo)
+        val loaded = repo.getWithContent(id)!!
+
+        repo.save(
+            scene = loaded.scene,
+            cast = loaded.cast.map { it.copy(outgoing = it.characterId == "c1") },
+            messages = loaded.messages,
+        )
+
+        assertEquals("Priya", repo.getWithContent(id)!!.outgoingCharacter!!.name)
     }
 
     @Test
@@ -90,25 +115,38 @@ class SceneRepositoryTest : DbTest() {
         // Every incoming row claims orderIndex -1; position in the list is what counts.
         val loaded = repo.getWithContent(seedScene(repo))!!
 
-        assertEquals(listOf(0, 1), loaded.characters.map { it.orderIndex })
+        assertEquals(listOf(0, 1), loaded.cast.map { it.orderIndex })
         assertEquals(listOf(0, 1, 2, 3), loaded.messages.map { it.orderIndex })
     }
 
+    /**
+     * The point of the library: a character can be renamed once, everywhere, and every scene
+     * already written still plays back exactly as it was written.
+     */
     @Test
-    fun `messages keep the sender snapshot after the character is renamed`() = runTest {
+    fun `renaming a character in the library leaves written scenes alone`() = runTest {
         val repo = repo()
         val id = seedScene(repo)
-        val loaded = repo.getWithContent(id)!!
-
-        // Rename Priya but leave the messages untouched, as the composer does.
-        val renamed = loaded.characters.map { c ->
-            if (c.name == "Priya") c.copy(name = "P.") else c
-        }
-        repo.save(loaded.scene, renamed, loaded.messages)
+        val priya = db.characterDao().getById("c1")!!
+        db.characterDao().update(priya.copy(name = "P."))
 
         val after = repo.getWithContent(id)!!
         assertEquals(listOf("You", "P."), after.characters.map { it.name })
         // The message still renders under the name it was sent with.
+        assertEquals("Priya", after.messages.first { it.charId == "c1" }.charName)
+    }
+
+    /** Removing someone from the library leaves the scenes they were in intact. */
+    @Test
+    fun `deleting a character keeps the scenes they appeared in`() = runTest {
+        val repo = repo()
+        val id = seedScene(repo)
+
+        db.characterDao().deleteById("c1")
+
+        val after = repo.getWithContent(id)!!
+        assertEquals(listOf("You"), after.characters.map { it.name })
+        assertEquals(4, after.messages.size)
         assertEquals("Priya", after.messages.first { it.charId == "c1" }.charName)
     }
 
@@ -120,7 +158,7 @@ class SceneRepositoryTest : DbTest() {
 
         repo.save(
             scene = loaded.scene,
-            characters = loaded.characters,
+            cast = loaded.cast,
             messages = loaded.messages.take(2),
         )
 
@@ -142,7 +180,7 @@ class SceneRepositoryTest : DbTest() {
     }
 
     @Test
-    fun `deleting a scene cascades to its characters and messages`() = runTest {
+    fun `deleting a scene cascades to its cast and messages`() = runTest {
         val repo = repo()
         val id = seedScene(repo)
 
@@ -150,8 +188,10 @@ class SceneRepositoryTest : DbTest() {
 
         assertNull(repo.getWithContent(id))
         assertEquals(0, repo.observeCount().first())
+        // The characters themselves survive — they belong to the library, not the scene.
+        assertEquals(2, countRows("characters"))
         // Orphans would still satisfy the query above, so check the child tables directly.
-        assertEquals(0, countRows("scene_characters"))
+        assertEquals(0, countRows("scene_cast"))
         assertEquals(0, countRows("scene_messages"))
     }
 

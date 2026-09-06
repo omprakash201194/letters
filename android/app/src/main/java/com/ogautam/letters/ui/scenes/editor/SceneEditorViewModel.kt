@@ -9,10 +9,11 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.ogautam.letters.LettersApplication
 import com.ogautam.letters.data.avatars.AvatarStore
-import com.ogautam.letters.data.entity.CharacterPalette
-import com.ogautam.letters.data.entity.SceneCharacterEntity
+import com.ogautam.letters.data.entity.CharacterEntity
+import com.ogautam.letters.data.entity.SceneCastEntity
 import com.ogautam.letters.data.entity.SceneEntity
 import com.ogautam.letters.data.entity.SceneMessageEntity
+import com.ogautam.letters.data.repository.CharacterRepository
 import com.ogautam.letters.data.repository.SceneRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,10 +33,13 @@ data class SceneEditorUiState(
     val loading: Boolean = true,
     val step: EditorStep = EditorStep.SETUP,
     val name: String = "",
-    val characters: List<SceneCharacterEntity> = emptyList(),
+    val characters: List<CharacterEntity> = emptyList(),
+    val outgoingCharId: String? = null,
     val messages: List<SceneMessageEntity> = emptyList(),
     val selectedCharId: String? = null,
     val draft: String = "",
+    /** Composing a message that will be typed and taken back rather than sent. */
+    val composingUnsent: Boolean = false,
     val saving: Boolean = false,
     val justSaved: Boolean = false,
     val isDirty: Boolean = false,
@@ -44,27 +48,32 @@ data class SceneEditorUiState(
     val canCompose: Boolean get() = characters.isNotEmpty()
     val canPreview: Boolean get() = messages.isNotEmpty()
 
-    /** The first character is the outgoing one. This defines the scene model. */
-    val outgoingCharId: String? get() = characters.firstOrNull()?.id
+    val outgoing: CharacterEntity?
+        get() = characters.firstOrNull { it.id == outgoingCharId } ?: characters.firstOrNull()
 }
 
 private data class Snapshot(
     val name: String,
-    val characters: List<SceneCharacterEntity>,
+    val characterIds: List<String>,
+    val outgoingCharId: String?,
     val messages: List<SceneMessageEntity>,
 )
 
 class SceneEditorViewModel(
     private val repo: SceneRepository,
+    private val characters: CharacterRepository,
     private val avatars: AvatarStore,
     private val sceneId: String?,
+    private val storyId: String? = null,
+    initialCastIds: List<String> = emptyList(),
+    initialName: String? = null,
     private val clock: Clock = Clock.systemDefaultZone(),
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SceneEditorUiState())
     val state: StateFlow<SceneEditorUiState> = _state.asStateFlow()
 
-    private var snapshot = Snapshot("", emptyList(), emptyList())
+    private var snapshot = Snapshot("", emptyList(), null, emptyList())
     private var storedId: String? = sceneId
 
     init {
@@ -75,18 +84,24 @@ class SceneEditorViewModel(
                 return@launch
             }
 
-            val name = existing?.scene?.name ?: DEFAULT_NAME
-            val characters = existing?.characters.orEmpty()
+            val cast = existing?.characters ?: characters.getAllById(initialCastIds)
+                .sortedBy { initialCastIds.indexOf(it.id) }
+            val outgoingId = existing?.outgoingCharacterId
+                ?: cast.firstOrNull { it.isSelf }?.id
+                ?: cast.firstOrNull()?.id
+            val name = existing?.scene?.name ?: initialName?.trim()?.ifBlank { null } ?: DEFAULT_NAME
             val messages = existing?.messages.orEmpty()
-            snapshot = Snapshot(name, characters, messages)
+
+            snapshot = Snapshot(name, cast.map(CharacterEntity::id), outgoingId, messages)
             _state.value = SceneEditorUiState(
                 loading = false,
-                // An existing scene opens where the work is, not back at the character list.
+                // An existing scene opens where the work is, not back at the cast list.
                 step = if (messages.isNotEmpty()) EditorStep.COMPOSER else EditorStep.SETUP,
                 name = name,
-                characters = characters,
+                characters = cast,
+                outgoingCharId = outgoingId,
                 messages = messages,
-                selectedCharId = characters.firstOrNull()?.id,
+                selectedCharId = outgoingId ?: cast.firstOrNull()?.id,
             )
         }
     }
@@ -95,81 +110,62 @@ class SceneEditorViewModel(
 
     fun onNameChange(value: String) = edit { copy(name = value) }
 
-    // ── characters ─────────────────────────────────────────────────────────
+    // ── cast ───────────────────────────────────────────────────────────────
 
-    fun addCharacter(name: String) {
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
-        edit {
-            val character = SceneCharacterEntity(
-                sceneId = storedId ?: PENDING_SCENE_ID,
-                name = trimmed,
-                color = CharacterPalette.colorForIndex(characters.size),
-                orderIndex = characters.size,
-            )
-            copy(
-                characters = characters + character,
-                selectedCharId = selectedCharId ?: character.id,
-            )
-        }
+    fun addToCast(character: CharacterEntity) = edit {
+        if (characters.any { it.id == character.id }) this
+        else copy(
+            characters = characters + character,
+            outgoingCharId = outgoingCharId ?: character.id,
+            selectedCharId = selectedCharId ?: character.id,
+        )
     }
 
-    fun renameCharacter(charId: String, name: String) {
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
-        edit {
-            copy(
-                characters = characters.map {
-                    if (it.id == charId) it.copy(name = trimmed) else it
-                },
-                // The sender's name is snapshotted onto each message, so a rename has to
-                // reach the messages too or playback keeps showing the old one.
-                messages = messages.map {
-                    if (it.charId == charId) it.copy(charName = trimmed) else it
-                },
-            )
-        }
+    /**
+     * Removing someone from the cast leaves what they already said. Their messages hold
+     * their own snapshot, so the scene still plays — they simply cannot say anything more.
+     */
+    fun removeFromCast(characterId: String) = edit {
+        val remaining = characters.filterNot { it.id == characterId }
+        copy(
+            characters = remaining,
+            outgoingCharId = if (outgoingCharId == characterId) remaining.firstOrNull()?.id
+            else outgoingCharId,
+            selectedCharId = if (selectedCharId == characterId) remaining.firstOrNull()?.id
+            else selectedCharId,
+        )
     }
 
-    /** Deleting a character deletes everything they said. */
-    fun removeCharacter(charId: String) {
-        edit {
-            val remaining = characters
-                .filterNot { it.id == charId }
-                // reason: colour is assigned by position, so closing a gap has to recolour
-                // everyone after it — including the messages they already sent
-                .mapIndexed { index, character ->
-                    character.copy(orderIndex = index, color = CharacterPalette.colorForIndex(index))
-                }
-            val colorById = remaining.associate { it.id to it.color }
-            copy(
-                characters = remaining,
-                messages = messages
-                    .filterNot { it.charId == charId }
-                    .map { message ->
-                        colorById[message.charId]
-                            ?.let { message.copy(charColor = it) }
-                            ?: message
-                    },
-                selectedCharId = if (selectedCharId == charId) remaining.firstOrNull()?.id
-                else selectedCharId,
-            )
-        }
+    /** Which member of the cast is speaking as "you" — a role, not a property of a person. */
+    fun setOutgoing(characterId: String) = edit { copy(outgoingCharId = characterId) }
+
+    /**
+     * Reflects a library edit into the open scene, and into the messages composed in it so
+     * far. Scenes already saved keep the snapshot they were written with.
+     */
+    fun refreshCharacter(updated: CharacterEntity) = edit {
+        copy(
+            characters = characters.map { if (it.id == updated.id) updated else it },
+            messages = messages.map {
+                if (it.charId != updated.id) it
+                else it.copy(
+                    charName = updated.name,
+                    charColor = updated.color,
+                    charAvatarPath = updated.avatarPath,
+                )
+            },
+        )
     }
 
+    /**
+     * Avatars belong to the library character, so setting one changes them everywhere they
+     * appear from now on. Scenes already saved keep the avatar they were written with.
+     */
     fun setAvatar(charId: String, uri: Uri) {
         viewModelScope.launch {
             val path = withContext(Dispatchers.IO) { avatars.import(uri) } ?: return@launch
-            edit {
-                copy(
-                    characters = characters.map {
-                        if (it.id == charId) it.copy(avatarPath = path) else it
-                    },
-                    messages = messages.map {
-                        if (it.charId == charId) it.copy(charAvatarPath = path) else it
-                    },
-                )
-            }
+            val character = characters.getById(charId) ?: return@launch
+            refreshCharacter(characters.update(character.copy(avatarPath = path)))
         }
     }
 
@@ -178,6 +174,9 @@ class SceneEditorViewModel(
     fun selectCharacter(charId: String) = _state.update { it.copy(selectedCharId = charId) }
 
     fun onDraftChange(value: String) = _state.update { it.copy(draft = value) }
+
+    fun setComposingUnsent(unsent: Boolean) =
+        _state.update { it.copy(composingUnsent = unsent) }
 
     fun send() {
         val current = _state.value
@@ -195,8 +194,9 @@ class SceneEditorViewModel(
                     charAvatarPath = character.avatarPath,
                     text = text,
                     time = LocalTime.now(clock).withSecond(0).withNano(0),
-                    outgoing = character.id == outgoingCharId,
+                    outgoing = character.id == (outgoingCharId ?: characters.firstOrNull()?.id),
                     orderIndex = messages.size,
+                    unsent = composingUnsent,
                 ),
                 draft = "",
             )
@@ -210,7 +210,27 @@ class SceneEditorViewModel(
         }
     }
 
-    // ── saving ─────────────────────────────────────────────────────────────
+    /** The per-message playback controls, applied from the customise sheet. */
+    fun customiseMessage(
+        index: Int,
+        revealPerCharMs: Long?,
+        typingMs: Long?,
+        delayBeforeMs: Long?,
+        unsent: Boolean,
+    ) = edit {
+        if (index !in messages.indices) this
+        else copy(
+            messages = messages.mapIndexed { i, message ->
+                if (i != index) message
+                else message.copy(
+                    revealPerCharMs = revealPerCharMs,
+                    typingMs = typingMs,
+                    delayBeforeMs = delayBeforeMs,
+                    unsent = unsent,
+                )
+            },
+        )
+    }
 
     fun save() {
         val current = _state.value
@@ -222,28 +242,40 @@ class SceneEditorViewModel(
             val id = storedId
 
             val scene = if (id == null) {
-                SceneEntity(name = name)
+                SceneEntity(name = name, storyId = storyId)
             } else {
-                repo.getWithContent(id)?.scene?.copy(name = name) ?: SceneEntity(id = id, name = name)
+                repo.getWithContent(id)?.scene?.copy(name = name)
+                    ?: SceneEntity(id = id, name = name, storyId = storyId)
             }
 
-            // Children carry the scene's id; a scene created just now did not have one when
-            // its characters and messages were built.
-            val characters = current.characters.map { it.copy(sceneId = scene.id) }
+            val outgoingId = current.outgoingCharId ?: current.characters.firstOrNull()?.id
+            val cast = current.characters.mapIndexed { index, character ->
+                SceneCastEntity(
+                    sceneId = scene.id,
+                    characterId = character.id,
+                    orderIndex = index,
+                    outgoing = character.id == outgoingId,
+                )
+            }
             val messages = current.messages.map { it.copy(sceneId = scene.id) }
 
             if (id == null) {
-                repo.create(scene, characters, messages)
+                repo.create(scene, cast, messages)
             } else {
-                repo.save(scene, characters, messages)
+                repo.save(scene, cast, messages)
             }
             storedId = scene.id
 
-            snapshot = Snapshot(name, characters, messages)
+            snapshot = Snapshot(
+                name = name,
+                characterIds = current.characters.map(CharacterEntity::id),
+                outgoingCharId = outgoingId,
+                messages = messages,
+            )
             _state.update {
                 it.copy(
                     name = name,
-                    characters = characters,
+                    outgoingCharId = outgoingId,
                     messages = messages,
                     saving = false,
                     justSaved = true,
@@ -264,7 +296,8 @@ class SceneEditorViewModel(
 
     private fun SceneEditorUiState.differsFromSnapshot(): Boolean =
         name.trim() != snapshot.name ||
-            characters != snapshot.characters ||
+            characters.map(CharacterEntity::id) != snapshot.characterIds ||
+            outgoingCharId != snapshot.outgoingCharId ||
             messages != snapshot.messages
 
     companion object {
@@ -276,10 +309,23 @@ class SceneEditorViewModel(
          */
         private val PENDING_SCENE_ID = UUID(0, 0).toString()
 
-        fun factory(sceneId: String?): ViewModelProvider.Factory = viewModelFactory {
+        fun factory(
+            sceneId: String?,
+            storyId: String? = null,
+            castIds: List<String> = emptyList(),
+            name: String? = null,
+        ): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[APPLICATION_KEY] as LettersApplication
-                SceneEditorViewModel(app.scenes, app.avatars, sceneId)
+                SceneEditorViewModel(
+                    repo = app.scenes,
+                    characters = app.characters,
+                    avatars = app.avatars,
+                    sceneId = sceneId,
+                    storyId = storyId,
+                    initialCastIds = castIds,
+                    initialName = name,
+                )
             }
         }
     }

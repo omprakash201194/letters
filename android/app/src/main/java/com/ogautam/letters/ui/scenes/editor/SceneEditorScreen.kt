@@ -55,11 +55,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ogautam.letters.data.entity.CharacterPalette
-import com.ogautam.letters.data.entity.SceneCharacterEntity
+import com.ogautam.letters.data.entity.CharacterEntity
 import com.ogautam.letters.ui.common.BackChevron
 import com.ogautam.letters.ui.common.ConfirmDialog
 import com.ogautam.letters.ui.common.HeaderButton
 import com.ogautam.letters.ui.common.ScreenHeader
+import com.ogautam.letters.ui.scenes.AvatarBadge
 import com.ogautam.letters.ui.scenes.ScenePlayerScreen
 import com.ogautam.letters.ui.scenes.chat.ChatCanvas
 import com.ogautam.letters.ui.scenes.chat.ChatTheme
@@ -75,7 +76,14 @@ fun SceneEditorScreen(
     sceneId: String?,
     onBack: () -> Unit,
     avatarFor: (String?) -> Bitmap?,
-    viewModel: SceneEditorViewModel = viewModel(factory = SceneEditorViewModel.factory(sceneId)),
+    onPickCast: () -> Unit = {},
+    storyId: String? = null,
+    castIds: List<String> = emptyList(),
+    initialName: String? = null,
+    viewModel: SceneEditorViewModel = viewModel(
+        key = "editor:${sceneId ?: "new"}",
+        factory = SceneEditorViewModel.factory(sceneId, storyId, castIds, initialName),
+    ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirmLeave by remember { mutableStateOf(false) }
@@ -95,7 +103,7 @@ fun SceneEditorScreen(
     if (state.loading) return
 
     when (state.step) {
-        EditorStep.SETUP -> SetupStep(state, viewModel, leave)
+        EditorStep.SETUP -> SetupStep(state, viewModel, leave, onPickCast)
         EditorStep.COMPOSER -> ComposerStep(state, viewModel, leave, avatarFor)
         EditorStep.PREVIEW -> ScenePlayerScreen(
             onBack = leave,
@@ -124,9 +132,8 @@ private fun SetupStep(
     state: SceneEditorUiState,
     viewModel: SceneEditorViewModel,
     onBack: () -> Unit,
+    onPickCast: () -> Unit,
 ) {
-    var namingCharacter by remember { mutableStateOf(false) }
-    var renaming by remember { mutableStateOf<SceneCharacterEntity?>(null) }
     var avatarTarget by remember { mutableStateOf<String?>(null) }
 
     val pickAvatar = rememberLauncherForActivityResult(
@@ -163,8 +170,8 @@ private fun SetupStep(
 
         if (state.characters.isEmpty()) {
             Text(
-                "Add at least one character. The first is \"You\" — outgoing, green bubbles, " +
-                    "on the right.",
+                "Nobody in this scene yet. Pick the people it is between — tap one to make " +
+                    "them the voice on the right.",
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 32.dp),
                 fontSize = 14.sp,
                 color = LettersPalette.Meta,
@@ -177,18 +184,18 @@ private fun SetupStep(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(state.characters, key = SceneCharacterEntity::id) { character ->
+            items(state.characters, key = CharacterEntity::id) { character ->
                 CharacterRow(
                     character = character,
-                    isOutgoing = character.id == state.outgoingCharId,
+                    isOutgoing = character.id == state.outgoing?.id,
                     onPickAvatar = {
                         avatarTarget = character.id
                         pickAvatar.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
                     },
-                    onRename = { renaming = character },
-                    onRemove = { viewModel.removeCharacter(character.id) },
+                    onMakeOutgoing = { viewModel.setOutgoing(character.id) },
+                    onRemove = { viewModel.removeFromCast(character.id) },
                 )
             }
         }
@@ -204,40 +211,23 @@ private fun SetupStep(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(LettersPalette.Teal)
-                    .clickable { namingCharacter = true }
+                    .clickable(onClick = onPickCast)
                     .padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("＋  Add character", color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text("＋  Add someone", color = Color.White, fontWeight = FontWeight.SemiBold)
             }
         }
     }
 
-    if (namingCharacter) {
-        NameDialog(
-            title = if (state.characters.isEmpty()) "Who are you in this scene?" else "Character name",
-            initial = if (state.characters.isEmpty()) "You" else "",
-            onConfirm = { viewModel.addCharacter(it); namingCharacter = false },
-            onDismiss = { namingCharacter = false },
-        )
-    }
-
-    renaming?.let { character ->
-        NameDialog(
-            title = "Rename character",
-            initial = character.name,
-            onConfirm = { viewModel.renameCharacter(character.id, it); renaming = null },
-            onDismiss = { renaming = null },
-        )
-    }
 }
 
 @Composable
 private fun CharacterRow(
-    character: SceneCharacterEntity,
+    character: CharacterEntity,
     isOutgoing: Boolean,
     onPickAvatar: () -> Unit,
-    onRename: () -> Unit,
+    onMakeOutgoing: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Row(
@@ -245,7 +235,7 @@ private fun CharacterRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
-            .clickable(onClick = onRename)
+            .clickable(onClick = onMakeOutgoing)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -258,8 +248,8 @@ private fun CharacterRow(
         Column(Modifier.weight(1f)) {
             Text(character.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             Text(
-                if (isOutgoing) "You · outgoing · tap the avatar for a photo"
-                else "Incoming · tap the avatar for a photo",
+                if (isOutgoing) "Speaking as you · right, in green"
+                else "Tap to make them the voice on the right",
                 fontSize = 12.sp,
                 color = LettersPalette.Meta,
             )
@@ -282,7 +272,7 @@ private fun ComposerStep(
     onBack: () -> Unit,
     avatarFor: (String?) -> Bitmap?,
 ) {
-    var pendingDelete by remember { mutableStateOf<Int?>(null) }
+    var customising by remember { mutableStateOf<Int?>(null) }
 
     Column(
         Modifier
@@ -322,7 +312,11 @@ private fun ComposerStep(
             elapsedMs = 0L,
             modifier = Modifier.weight(1f),
             avatarFor = avatarFor,
-            onMessageTap = { pendingDelete = it },
+            onMessageTap = { customising = it },
+            // The composer has a real input bar below; a drawn one would be a second.
+            showInputBar = false,
+            // Unsent messages are shown here, faintly, so they can be found and edited.
+            showUnsentGhosts = true,
         )
 
         Column(Modifier.fillMaxWidth().background(Color(0xFFF0F0F0))) {
@@ -392,6 +386,25 @@ private fun ComposerStep(
                     )
                 }
                 Spacer(Modifier.width(8.dp))
+                // Composing words that will be typed out and taken back, never sent.
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (state.composingUnsent) LettersPalette.Danger
+                            else Color(0xFFE0E0E0),
+                        )
+                        .clickable { viewModel.setComposingUnsent(!state.composingUnsent) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "⌫",
+                        color = if (state.composingUnsent) Color.White else Color(0xFF666666),
+                        fontSize = 17.sp,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
                 val canSend = state.draft.isNotBlank() && state.selectedCharId != null
                 Box(
                     Modifier
@@ -407,15 +420,24 @@ private fun ComposerStep(
         }
     }
 
-    pendingDelete?.let { index ->
-        ConfirmDialog(
-            title = "Delete this message?",
-            body = state.messages.getOrNull(index)?.text,
-            confirmLabel = "Delete",
-            destructive = true,
-            onConfirm = { viewModel.deleteMessage(index); pendingDelete = null },
-            onDismiss = { pendingDelete = null },
-        )
+    customising?.let { index ->
+        state.messages.getOrNull(index)?.let { message ->
+            MessageCustomiseSheet(
+                message = message,
+                onApply = { customisation ->
+                    viewModel.customiseMessage(
+                        index = index,
+                        revealPerCharMs = customisation.revealPerCharMs,
+                        typingMs = customisation.typingMs,
+                        delayBeforeMs = customisation.delayBeforeMs,
+                        unsent = customisation.unsent,
+                    )
+                    customising = null
+                },
+                onDelete = { viewModel.deleteMessage(index); customising = null },
+                onDismiss = { customising = null },
+            )
+        }
     }
 }
 
@@ -473,66 +495,3 @@ private fun SceneNameField(name: String, onNameChange: (String) -> Unit) {
     }
 }
 
-@Composable
-private fun AvatarBadge(
-    character: SceneCharacterEntity,
-    size: Dp,
-    modifier: Modifier = Modifier,
-) {
-    val bitmap = character.avatarPath?.let { path ->
-        remember(path) { android.graphics.BitmapFactory.decodeFile(path) }
-    }
-    Box(
-        modifier.size(size).clip(CircleShape).background(Color(character.color)),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (bitmap != null) {
-            androidx.compose.foundation.Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = character.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Text(
-                CharacterPalette.initials(character.name),
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = (size.value * 0.38f).sp,
-            )
-        }
-    }
-}
-
-@Composable
-private fun NameDialog(
-    title: String,
-    initial: String,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var value by remember { mutableStateOf(initial) }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title, color = LettersPalette.BrownDeep) },
-        text = {
-            androidx.compose.material3.OutlinedTextField(
-                value = value,
-                onValueChange = { value = it },
-                singleLine = true,
-            )
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(
-                onClick = { onConfirm(value) },
-                enabled = value.isNotBlank(),
-            ) { Text("OK", color = LettersPalette.Teal) }
-        },
-        dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) {
-                Text("Cancel", color = LettersPalette.Muted)
-            }
-        },
-        containerColor = Color.White,
-    )
-}

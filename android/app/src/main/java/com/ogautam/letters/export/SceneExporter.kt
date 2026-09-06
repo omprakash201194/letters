@@ -163,9 +163,11 @@ class SceneExporter(
                 "sliceHeight=$sliceHeight (height ${VideoSpec.HEIGHT})",
         )
 
-        val renderer = ChatRenderer(VideoSpec.WIDTH.toFloat(), VideoSpec.DENSITY) {
-            avatarFor(it.charAvatarPath)
-        }
+        val renderer = ChatRenderer(
+            widthPx = VideoSpec.WIDTH.toFloat(),
+            density = VideoSpec.DENSITY,
+            avatarFor = { avatarFor(it.charAvatarPath) },
+        )
         renderer.setMessages(messages)
 
         val bitmap = Bitmap.createBitmap(VideoSpec.WIDTH, VideoSpec.HEIGHT, Bitmap.Config.ARGB_8888)
@@ -270,8 +272,10 @@ class SceneExporter(
     ) {
         val timeMs = frame * 1_000L / VideoSpec.FPS
         val state = timeline.stateAt(timeMs)
-        // The exported frame scrolls exactly as the preview does — pinned to the bottom.
-        val scrollY = max(0f, renderer.contentHeight(state) - VideoSpec.HEIGHT)
+        // The exported frame scrolls exactly as the preview does — pinned to the bottom of
+        // the transcript, which is the frame less the input bar.
+        val transcriptHeight = renderer.transcriptHeight(VideoSpec.HEIGHT.toFloat())
+        val scrollY = max(0f, renderer.contentHeight(state) - transcriptHeight)
         renderer.draw(
             canvas = canvas,
             state = state,

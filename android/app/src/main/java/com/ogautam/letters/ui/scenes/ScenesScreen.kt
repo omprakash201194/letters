@@ -50,7 +50,12 @@ fun ScenesScreen(
     onBack: () -> Unit,
     onOpenScene: (String) -> Unit,
     onNewScene: () -> Unit,
-    viewModel: SceneListViewModel = viewModel(factory = SceneListViewModel.Factory),
+    title: String = "Chat Scenes",
+    storyId: String? = null,
+    viewModel: SceneListViewModel = viewModel(
+        key = "scenes:${storyId ?: "all"}",
+        factory = SceneListViewModel.factory(storyId),
+    ),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<SceneSummary?>(null) }
@@ -66,7 +71,7 @@ fun ScenesScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BackChevron(Color.White, onBack)
                 Spacer(Modifier.width(6.dp))
-                ScreenTitle("Chat Scenes")
+                ScreenTitle(title)
             }
             HeaderButton("＋ New", onNewScene)
         }

@@ -4,13 +4,15 @@ import android.app.Application
 import com.ogautam.letters.data.LettersDatabase
 import com.ogautam.letters.data.avatars.AvatarStore
 import com.ogautam.letters.data.prefs.UserPreferences
+import com.ogautam.letters.data.repository.CharacterRepository
 import com.ogautam.letters.data.repository.LetterRepository
+import com.ogautam.letters.data.repository.StoryRepository
 import com.ogautam.letters.data.repository.SceneRepository
 
 class LettersApplication : Application() {
 
     /**
-     * A plain service locator, not a DI framework. Four dependencies do not justify
+     * A plain service locator, not a DI framework. Six dependencies do not justify
      * Hilt; revisit if the graph grows past a handful.
      */
     lateinit var letters: LetterRepository
@@ -25,6 +27,12 @@ class LettersApplication : Application() {
     lateinit var avatars: AvatarStore
         private set
 
+    lateinit var characters: CharacterRepository
+        private set
+
+    lateinit var stories: StoryRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         val db = LettersDatabase.get(this)
@@ -32,5 +40,7 @@ class LettersApplication : Application() {
         scenes = SceneRepository(db.sceneDao())
         prefs = UserPreferences(this)
         avatars = AvatarStore(this)
+        characters = CharacterRepository(db.characterDao())
+        stories = StoryRepository(db.storyDao())
     }
 }

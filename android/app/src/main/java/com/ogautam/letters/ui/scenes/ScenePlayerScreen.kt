@@ -275,7 +275,7 @@ private fun PlayerControls(
             }
             Spacer(Modifier.width(8.dp))
             Text(
-                "${state.playback.visibleCount} / ${state.messageCount}",
+                "${state.playback.playedCount} / ${state.messageCount}",
                 fontSize = 12.sp,
                 color = Color(0xFF888888),
             )

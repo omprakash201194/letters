@@ -20,9 +20,14 @@ data class SceneListUiState(
     val scenes: List<SceneSummary> = emptyList(),
 )
 
-class SceneListViewModel(private val repo: SceneRepository) : ViewModel() {
+class SceneListViewModel(
+    private val repo: SceneRepository,
+    storyId: String?,
+) : ViewModel() {
 
-    val state: StateFlow<SceneListUiState> = repo.observeSummaries()
+    val state: StateFlow<SceneListUiState> = (
+        if (storyId == null) repo.observeSummaries() else repo.observeSummariesForStory(storyId)
+        )
         .map { SceneListUiState(loading = false, scenes = it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SceneListUiState())
 
@@ -37,9 +42,9 @@ class SceneListViewModel(private val repo: SceneRepository) : ViewModel() {
     }
 
     companion object {
-        val Factory: ViewModelProvider.Factory = viewModelFactory {
+        fun factory(storyId: String?): ViewModelProvider.Factory = viewModelFactory {
             initializer {
-                SceneListViewModel((this[APPLICATION_KEY] as LettersApplication).scenes)
+                SceneListViewModel((this[APPLICATION_KEY] as LettersApplication).scenes, storyId)
             }
         }
     }

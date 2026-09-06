@@ -27,11 +27,24 @@ class ChatRenderer(
     density: Float,
     /** Resolves a message's avatar image; returns null to fall back to initials. */
     private val avatarFor: (SceneMessageEntity) -> Bitmap? = { null },
+    /**
+     * Whether to draw the input bar. On during playback and in the export, where unsent
+     * words are typed into it; off in the composer, which has a real one of its own and
+     * would otherwise show two.
+     */
+    private val showInputBar: Boolean = true,
+    /**
+     * Whether messages that were never sent are drawn, faintly, where they sit in the
+     * transcript. On in the composer, so they can be found and edited; off in playback and
+     * in the export, where they are not part of the conversation at all.
+     */
+    private val showUnsentGhosts: Boolean = false,
 ) {
 
     private val metrics = ChatMetrics(density)
     private val layout = ChatLayout(widthPx, density, metrics)
 
+    /** Every message, including unsent ones — a typing indicator may belong to one. */
     private var messages: List<SceneMessageEntity> = emptyList()
     private var measured: ChatLayoutResult = ChatLayoutResult(emptyList(), 0f)
 
@@ -48,16 +61,38 @@ class ChatRenderer(
     }
 
     private val bubblePath = Path()
+    private val revealPath = Path()
+    private val inputPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val ghostPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = ChatTheme.GHOST_OUTLINE
+    }
+    private val ghostDash = android.graphics.DashPathEffect(
+        floatArrayOf(metrics.caretWidth * 4f, metrics.caretWidth * 3f),
+        0f,
+    )
+    private val inputTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = metrics.inputTextSize
+    }
     private val rect = RectF()
     private val radii = FloatArray(8)
 
     fun setMessages(value: List<SceneMessageEntity>) {
         if (value == messages) return
         messages = value
-        measured = layout.measure(value)
+        // reason: a playback state counts only the bubbles that exist, so the laid-out list
+        // has to match it. Measuring unsent messages there would shift every later bubble
+        // by one and hide the last of them.
+        measured = layout.measure(
+            if (showUnsentGhosts) value else value.filterNot(SceneMessageEntity::unsent),
+        )
     }
 
     /** How tall the transcript is at this instant, typing indicator included. */
+    /** The transcript's own height: the surface, less the input bar sitting under it. */
+    fun transcriptHeight(viewportHeight: Float): Float =
+        (viewportHeight - if (showInputBar) metrics.inputBarHeight else 0f).coerceAtLeast(0f)
+
     fun contentHeight(state: PlaybackState): Float {
         val bubbles = measured.bubbles
         val visible = state.visibleCount.coerceIn(0, bubbles.size)
@@ -90,9 +125,11 @@ class ChatRenderer(
         scrollY: Float,
         viewportHeight: Float,
     ) {
-        drawBackground(canvas, viewportHeight)
+        val transcriptHeight = transcriptHeight(viewportHeight)
+        drawBackground(canvas, transcriptHeight)
 
         canvas.save()
+        canvas.clipRect(0f, 0f, widthPx, transcriptHeight)
         canvas.translate(0f, -scrollY)
 
         val bubbles = measured.bubbles
@@ -105,7 +142,12 @@ class ChatRenderer(
             } else {
                 1f
             }
-            drawBubbleRow(canvas, bubble, popFraction)
+            drawBubbleRow(
+                canvas = canvas,
+                bubble = bubble,
+                popFraction = popFraction,
+                revealedChars = if (isNewest) state.revealedChars else null,
+            )
         }
 
         state.typingIndex?.let { typingIndex ->
@@ -120,6 +162,7 @@ class ChatRenderer(
         }
 
         canvas.restore()
+        if (showInputBar) drawInputBar(canvas, state.composing, transcriptHeight, elapsedMs)
     }
 
     // ── surface ────────────────────────────────────────────────────────────
@@ -159,8 +202,15 @@ class ChatRenderer(
 
     // ── one message ────────────────────────────────────────────────────────
 
-    private fun drawBubbleRow(canvas: Canvas, bubble: BubbleLayout, popFraction: Float) {
+    private fun drawBubbleRow(
+        canvas: Canvas,
+        bubble: BubbleLayout,
+        popFraction: Float,
+        revealedChars: Int?,
+    ) {
         val message = bubble.message
+        // A ghost of something never sent: faint, and outlined rather than filled.
+        val ghost = message.unsent
 
         // The avatar and the sender label are not animated — only the bubble pops.
         if (!message.outgoing && bubble.showSender) {
@@ -186,7 +236,8 @@ class ChatRenderer(
                 (1f - ChatTheme.POP_FROM_SCALE) * CubicBezierEasing.BUBBLE_POP(popFraction)
             canvas.scale(scale, scale, bubble.centerX, bubble.centerY)
         }
-        val alpha = (255 * min(1f, popFraction / OPACITY_FRACTION)).toInt().coerceIn(0, 255)
+        var alpha = (255 * min(1f, popFraction / OPACITY_FRACTION)).toInt().coerceIn(0, 255)
+        if (ghost) alpha = (alpha * GHOST_ALPHA).toInt()
 
         rect.set(bubble.bubbleLeft, bubble.bubbleTop, bubble.bubbleRight, bubble.bubbleBottom)
         setBubbleRadii(message.outgoing)
@@ -207,20 +258,43 @@ class ChatRenderer(
         fillPaint.clearShadowLayer()
         fillPaint.alpha = 255
 
-        drawBubbleContent(canvas, bubble, alpha)
+        if (ghost) drawGhostOutline(canvas)
+
+        drawBubbleContent(canvas, bubble, alpha, revealedChars)
         canvas.restore()
     }
 
-    private fun drawBubbleContent(canvas: Canvas, bubble: BubbleLayout, alpha: Int) {
+    private fun drawBubbleContent(
+        canvas: Canvas,
+        bubble: BubbleLayout,
+        alpha: Int,
+        revealedChars: Int?,
+    ) {
         canvas.save()
         canvas.translate(
             bubble.bubbleLeft + metrics.bubblePadLeft,
             bubble.bubbleTop + metrics.bubblePadTop,
         )
         layout.textPaint.alpha = alpha
-        bubble.textLayout.draw(canvas)
+        if (revealedChars == null) {
+            bubble.textLayout.draw(canvas)
+        } else {
+            // The bubble is already at its final size; only the letters arrive over time.
+            val regions = layout.revealRegions(bubble, revealedChars)
+            if (regions.isNotEmpty()) {
+                canvas.save()
+                revealPath.reset()
+                regions.forEach { revealPath.addRect(it, Path.Direction.CW) }
+                canvas.clipPath(revealPath)
+                bubble.textLayout.draw(canvas)
+                canvas.restore()
+            }
+        }
         layout.textPaint.alpha = 255
         canvas.restore()
+
+        // The meta row waits until the words have finished arriving.
+        if (revealedChars != null) return
 
         // The meta row hugs the bubble's right edge, under the text.
         val metaBaseline = bubble.bubbleBottom - metrics.bubblePadBottom -
@@ -293,6 +367,97 @@ class ChatRenderer(
         )
     }
 
+    // ── input bar ──────────────────────────────────────────────────────────
+
+    /**
+     * The input bar, drawn on every frame whether or not anything is being written into it.
+     * It is where your own unsent words appear: typed out, held, and taken back, so the
+     * video shows what you almost said. Nobody else's words ever appear here — a chat shows
+     * you three dots and never the sentence behind them.
+     */
+    private fun drawInputBar(
+        canvas: Canvas,
+        composing: String?,
+        top: Float,
+        elapsedMs: Long,
+    ) {
+        val bottom = top + metrics.inputBarHeight
+        inputPaint.color = ChatTheme.INPUT_BAR_GROUND
+        canvas.drawRect(0f, top, widthPx, bottom, inputPaint)
+
+        val sendRadius = metrics.sendButtonDiameter / 2f
+        val sendCenterX = widthPx - metrics.inputPadHorizontal - sendRadius
+        val fieldRight = sendCenterX - sendRadius - metrics.inputPadHorizontal
+
+        rect.set(
+            metrics.inputPadHorizontal,
+            top + metrics.inputPadVertical,
+            fieldRight,
+            bottom - metrics.inputPadVertical,
+        )
+        inputPaint.color = ChatTheme.INPUT_FIELD
+        inputPaint.setShadowLayer(metrics.shadowRadius, 0f, metrics.shadowDy, ChatTheme.SHADOW_COLOR)
+        canvas.drawRoundRect(rect, metrics.inputFieldRadius, metrics.inputFieldRadius, inputPaint)
+        inputPaint.clearShadowLayer()
+
+        val hasText = !composing.isNullOrEmpty()
+        inputTextPaint.color =
+            if (hasText) ChatTheme.BUBBLE_TEXT else ChatTheme.INPUT_PLACEHOLDER
+        val text = if (hasText) composing!! else PLACEHOLDER
+        val textLeft = rect.left + metrics.inputFieldPad
+        val baseline = rect.centerY() -
+            (inputTextPaint.fontMetrics.ascent + inputTextPaint.fontMetrics.descent) / 2f
+
+        // A long draft runs off the end of the field, as it would while you were writing it.
+        val available = rect.right - metrics.inputFieldPad - textLeft
+        val shown = trimToWidth(text, available)
+        canvas.drawText(shown, textLeft, baseline, inputTextPaint)
+
+        if (hasText) {
+            val caretX = textLeft + inputTextPaint.measureText(shown)
+            if (Math.floorMod(elapsedMs, ChatTheme.CARET_BLINK_MS) < ChatTheme.CARET_BLINK_MS / 2) {
+                inputPaint.color = ChatTheme.HEADER
+                canvas.drawRect(
+                    caretX,
+                    baseline + inputTextPaint.fontMetrics.ascent,
+                    caretX + metrics.caretWidth,
+                    baseline + inputTextPaint.fontMetrics.descent,
+                    inputPaint,
+                )
+            }
+        }
+
+        inputPaint.color = ChatTheme.SEND_BUTTON
+        canvas.drawCircle(sendCenterX, (top + bottom) / 2f, sendRadius, inputPaint)
+        drawSendGlyph(canvas, sendCenterX, (top + bottom) / 2f, sendRadius)
+    }
+
+    /** Keeps the tail of the text visible, the way a real field scrolls as you write. */
+    private fun trimToWidth(text: String, available: Float): String {
+        if (available <= 0f) return ""
+        if (inputTextPaint.measureText(text) <= available) return text
+        var start = 0
+        while (start < text.length &&
+            inputTextPaint.measureText(text, start, text.length) > available
+        ) {
+            start++
+        }
+        return text.substring(start)
+    }
+
+    /** A paper-plane triangle, rather than shipping an icon font for one glyph. */
+    private fun drawSendGlyph(canvas: Canvas, centerX: Float, centerY: Float, radius: Float) {
+        val arm = radius * 0.42f
+        bubblePath.reset()
+        bubblePath.moveTo(centerX - arm, centerY - arm)
+        bubblePath.lineTo(centerX + arm, centerY)
+        bubblePath.lineTo(centerX - arm, centerY + arm)
+        bubblePath.lineTo(centerX - arm * 0.45f, centerY)
+        bubblePath.close()
+        inputPaint.color = android.graphics.Color.WHITE
+        canvas.drawPath(bubblePath, inputPaint)
+    }
+
     // ── typing ─────────────────────────────────────────────────────────────
 
     private fun drawTypingIndicator(
@@ -347,12 +512,24 @@ class ChatRenderer(
         return max(0f, eased) * metrics.typingBounceRise
     }
 
+    /** A dashed edge, so a message that was never sent cannot be mistaken for one that was. */
+    private fun drawGhostOutline(canvas: Canvas) {
+        ghostPaint.strokeWidth = metrics.caretWidth
+        ghostPaint.pathEffect = ghostDash
+        canvas.drawPath(bubblePath, ghostPaint)
+    }
+
     private fun scaleAlpha(color: Int, alpha: Int): Int {
         val scaled = (android.graphics.Color.alpha(color) * alpha / 255).coerceIn(0, 255)
         return (color and 0x00FFFFFF) or (scaled shl 24)
     }
 
     companion object {
+        private const val PLACEHOLDER = "Message"
+
+        /** How faint a never-sent message is drawn while composing. */
+        private const val GHOST_ALPHA = 0.4f
+
         /** The bubble reaches full opacity in the first third of its pop. */
         private const val OPACITY_FRACTION = 0.33f
         private const val RISE_END = 0.3f

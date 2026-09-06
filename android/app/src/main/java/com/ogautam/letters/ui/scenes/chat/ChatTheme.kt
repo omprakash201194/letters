@@ -83,4 +83,27 @@ object ChatTheme {
     // Bubble pop-in: scale(0.7) → scale(1) over 250ms, cubic-bezier(0.34, 1.56, 0.64, 1)
     const val POP_DURATION_MS = 250L
     const val POP_FROM_SCALE = 0.7f
+
+    /**
+     * The input bar. It is drawn on every frame, not only while something is being typed
+     * into it — a bar that appeared for one moment and left would read as a mistake.
+     */
+    const val INPUT_BAR_HEIGHT_DP = 56f
+    const val INPUT_BAR_GROUND = 0xFFF0F0F0.toInt()
+    const val INPUT_FIELD = Color.WHITE
+    const val INPUT_FIELD_RADIUS_DP = 22f
+    const val INPUT_PLACEHOLDER = 0xFF9AA0A6.toInt()
+    const val INPUT_TEXT_SIZE_SP = 14.5f
+    const val INPUT_PAD_HORIZONTAL_DP = 12f
+    const val INPUT_PAD_VERTICAL_DP = 6f
+    const val INPUT_FIELD_PAD_DP = 14f
+    const val SEND_BUTTON_DIAMETER_DP = 44f
+    const val SEND_BUTTON = HEADER
+
+    /** The dashed edge on a message that was written and never sent. */
+    const val GHOST_OUTLINE = 0xFF9AA0A6.toInt()
+
+    /** The caret that blinks while words are being written or taken back. */
+    const val CARET_BLINK_MS = 1_000L
+    const val CARET_WIDTH_DP = 1.5f
 }

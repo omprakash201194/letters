@@ -1,6 +1,7 @@
 package com.ogautam.letters.ui.scenes.chat
 
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.Layout
 import android.text.StaticLayout
@@ -138,6 +139,38 @@ class ChatLayout(
     fun typingRowHeight(): Float =
         metrics.typingBubbleHeight + metrics.typingMarginBottom
 
+    /**
+     * The region of a laid-out message covering its first [chars] characters: whole lines
+     * above the caret, and the partial line the caret sits on.
+     *
+     * The bubble is measured at its full size and the text fills into it, so a typewriter
+     * reveal is a clip rather than a re-measure. Re-measuring per frame would reflow the
+     * whole transcript thirty times a second, and the bubble would grow as it typed.
+     */
+    fun revealRegions(bubble: BubbleLayout, chars: Int): List<RectF> {
+        val layout = bubble.textLayout
+        if (chars <= 0) return emptyList()
+        val offset = chars.coerceAtMost(layout.text.length)
+        val caretLine = layout.getLineForOffset(offset)
+        val regions = ArrayList<RectF>(2)
+
+        if (caretLine > 0) {
+            regions += RectF(
+                0f,
+                layout.getLineTop(0).toFloat(),
+                bubble.bubbleWidth,
+                layout.getLineTop(caretLine).toFloat(),
+            )
+        }
+        regions += RectF(
+            0f,
+            layout.getLineTop(caretLine).toFloat(),
+            layout.getPrimaryHorizontal(offset),
+            layout.getLineBottom(caretLine).toFloat(),
+        )
+        return regions
+    }
+
     private fun buildTextLayout(text: String, width: Int): StaticLayout =
         StaticLayout.Builder.obtain(text, 0, text.length, textPaint, width)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
@@ -211,4 +244,13 @@ class ChatMetrics(val density: Float) {
     val typingBounceRise = dp(ChatTheme.TYPING_BOUNCE_RISE_DP)
     val typingBubbleWidth = typingPadHorizontal * 2 + typingDot * 3 + typingDotGap * 2
     val typingBubbleHeight = typingPadVertical * 2 + typingDot
+
+    val inputBarHeight = dp(ChatTheme.INPUT_BAR_HEIGHT_DP)
+    val inputFieldRadius = dp(ChatTheme.INPUT_FIELD_RADIUS_DP)
+    val inputTextSize = dp(ChatTheme.INPUT_TEXT_SIZE_SP)
+    val inputPadHorizontal = dp(ChatTheme.INPUT_PAD_HORIZONTAL_DP)
+    val inputPadVertical = dp(ChatTheme.INPUT_PAD_VERTICAL_DP)
+    val inputFieldPad = dp(ChatTheme.INPUT_FIELD_PAD_DP)
+    val sendButtonDiameter = dp(ChatTheme.SEND_BUTTON_DIAMETER_DP)
+    val caretWidth = dp(ChatTheme.CARET_WIDTH_DP)
 }

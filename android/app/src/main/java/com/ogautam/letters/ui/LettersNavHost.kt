@@ -10,14 +10,30 @@ import androidx.navigation.compose.rememberNavController
 import com.ogautam.letters.ui.home.HomeScreen
 import com.ogautam.letters.ui.letters.LetterEditorScreen
 import com.ogautam.letters.ui.letters.LettersScreen
+import com.ogautam.letters.ui.characters.CharacterLibraryScreen
 import com.ogautam.letters.ui.scenes.ScenesScreen
+import com.ogautam.letters.ui.scenes.editor.NewSceneScreen
+import com.ogautam.letters.ui.stories.StoriesScreen
 import com.ogautam.letters.ui.scenes.editor.SceneEditorScreen
 
 object Routes {
     const val HOME = "home"
     const val LETTERS = "letters"
     const val SCENES = "scenes"
-    const val NEW_SCENE = "scene/new"
+    const val CHARACTERS = "characters"
+    const val STORY = "story/{storyId}"
+    const val NEW_SCENE_WIZARD = "scene/new/wizard?storyId={storyId}"
+
+    fun story(id: String) = "story/$id"
+
+    fun newSceneWizard(storyId: String?) =
+        "scene/new/wizard?storyId=${storyId.orEmpty()}"
+    const val NEW_SCENE = "scene/new?storyId={storyId}&cast={cast}&title={title}"
+
+    fun newScene(storyId: String?, castIds: List<String>, title: String) =
+        "scene/new?storyId=${storyId.orEmpty()}" +
+            "&cast=${castIds.joinToString(",")}" +
+            "&title=${android.net.Uri.encode(title)}"
     const val EDIT_SCENE = "scene/edit/{sceneId}"
 
     fun editScene(id: String) = "scene/edit/$id"
@@ -52,18 +68,55 @@ fun LettersNavHost(navController: NavHostController = rememberNavController()) {
         }
 
         composable(Routes.SCENES) {
-            ScenesScreen(
+            StoriesScreen(
                 onBack = navController::popBackStack,
+                onOpenStory = { navController.navigate(Routes.story(it)) },
                 onOpenScene = { navController.navigate(Routes.editScene(it)) },
-                onNewScene = { navController.navigate(Routes.NEW_SCENE) },
+                onNewScene = { navController.navigate(Routes.newSceneWizard(it)) },
+                onOpenCharacters = { navController.navigate(Routes.CHARACTERS) },
             )
         }
 
-        composable(Routes.NEW_SCENE) {
+        composable(Routes.CHARACTERS) {
+            CharacterLibraryScreen(onBack = navController::popBackStack)
+        }
+
+        composable(Routes.STORY) { entry ->
+            val storyId = entry.arguments?.getString("storyId")
+            ScenesScreen(
+                onBack = navController::popBackStack,
+                onOpenScene = { navController.navigate(Routes.editScene(it)) },
+                onNewScene = { navController.navigate(Routes.newSceneWizard(storyId)) },
+                title = "Story",
+                storyId = storyId,
+            )
+        }
+
+        composable(Routes.NEW_SCENE_WIZARD) { entry ->
+            val storyId = entry.arguments?.getString("storyId")?.ifBlank { null }
+            NewSceneScreen(
+                storyId = storyId,
+                onBack = navController::popBackStack,
+                onStart = { castIds, title ->
+                    navController.navigate(Routes.newScene(storyId, castIds, title)) {
+                        popUpTo(Routes.NEW_SCENE_WIZARD) { inclusive = true }
+                    }
+                },
+            )
+        }
+
+        composable(Routes.NEW_SCENE) { entry ->
             SceneEditorScreen(
                 sceneId = null,
                 onBack = { navController.popBackStack() },
                 avatarFor = avatars::load,
+                onPickCast = { navController.navigate(Routes.CHARACTERS) },
+                storyId = entry.arguments?.getString("storyId")?.ifBlank { null },
+                castIds = entry.arguments?.getString("cast")
+                    ?.split(",")
+                    ?.filter(String::isNotBlank)
+                    .orEmpty(),
+                initialName = entry.arguments?.getString("title"),
             )
         }
 
@@ -72,6 +125,7 @@ fun LettersNavHost(navController: NavHostController = rememberNavController()) {
                 sceneId = entry.arguments?.getString("sceneId"),
                 onBack = { navController.popBackStack() },
                 avatarFor = avatars::load,
+                onPickCast = { navController.navigate(Routes.CHARACTERS) },
             )
         }
 

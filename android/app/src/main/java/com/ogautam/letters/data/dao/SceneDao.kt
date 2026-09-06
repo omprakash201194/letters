@@ -5,7 +5,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
-import com.ogautam.letters.data.entity.SceneCharacterEntity
+import com.ogautam.letters.data.entity.SceneCastEntity
 import com.ogautam.letters.data.entity.SceneEntity
 import com.ogautam.letters.data.entity.SceneMessageEntity
 import com.ogautam.letters.data.entity.SceneWithContent
@@ -17,7 +17,7 @@ interface SceneDao {
     @Query(
         """
         SELECT s.id, s.name, s.createdAt, s.updatedAt,
-               (SELECT COUNT(*) FROM scene_characters c WHERE c.sceneId = s.id) AS characterCount,
+               (SELECT COUNT(*) FROM scene_cast       c WHERE c.sceneId = s.id) AS characterCount,
                (SELECT COUNT(*) FROM scene_messages   m WHERE m.sceneId = s.id) AS messageCount
         FROM scenes s
         ORDER BY s.updatedAt DESC
@@ -28,7 +28,19 @@ interface SceneDao {
     @Query(
         """
         SELECT s.id, s.name, s.createdAt, s.updatedAt,
-               (SELECT COUNT(*) FROM scene_characters c WHERE c.sceneId = s.id) AS characterCount,
+               (SELECT COUNT(*) FROM scene_cast       c WHERE c.sceneId = s.id) AS characterCount,
+               (SELECT COUNT(*) FROM scene_messages   m WHERE m.sceneId = s.id) AS messageCount
+        FROM scenes s
+        WHERE (:storyId IS NULL AND s.storyId IS NULL) OR s.storyId = :storyId
+        ORDER BY s.updatedAt DESC
+        """
+    )
+    fun observeSummariesForStory(storyId: String?): Flow<List<SceneSummary>>
+
+    @Query(
+        """
+        SELECT s.id, s.name, s.createdAt, s.updatedAt,
+               (SELECT COUNT(*) FROM scene_cast       c WHERE c.sceneId = s.id) AS characterCount,
                (SELECT COUNT(*) FROM scene_messages   m WHERE m.sceneId = s.id) AS messageCount
         FROM scenes s
         WHERE s.name LIKE '%' || :query || '%'
@@ -39,6 +51,12 @@ interface SceneDao {
 
     @Query("SELECT COUNT(*) FROM scenes")
     fun observeCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM scenes")
+    suspend fun observeCountOnce(): Int
+
+    @Query("UPDATE scenes SET storyId = :storyId, updatedAt = :updatedAt WHERE id = :sceneId")
+    suspend fun setStory(sceneId: String, storyId: String?, updatedAt: java.time.Instant)
 
     @Transaction
     @Query("SELECT * FROM scenes WHERE id = :id")
@@ -58,13 +76,13 @@ interface SceneDao {
     suspend fun deleteById(id: String)
 
     @Insert
-    suspend fun insertCharacters(characters: List<SceneCharacterEntity>)
+    suspend fun insertCast(cast: List<SceneCastEntity>)
 
     @Insert
     suspend fun insertMessages(messages: List<SceneMessageEntity>)
 
-    @Query("DELETE FROM scene_characters WHERE sceneId = :sceneId")
-    suspend fun deleteCharactersFor(sceneId: String)
+    @Query("DELETE FROM scene_cast WHERE sceneId = :sceneId")
+    suspend fun deleteCastFor(sceneId: String)
 
     @Query("DELETE FROM scene_messages WHERE sceneId = :sceneId")
     suspend fun deleteMessagesFor(sceneId: String)
@@ -77,24 +95,24 @@ interface SceneDao {
     @Transaction
     suspend fun replaceContent(
         scene: SceneEntity,
-        characters: List<SceneCharacterEntity>,
+        cast: List<SceneCastEntity>,
         messages: List<SceneMessageEntity>,
     ) {
         updateScene(scene)
-        deleteCharactersFor(scene.id)
+        deleteCastFor(scene.id)
         deleteMessagesFor(scene.id)
-        insertCharacters(characters)
+        insertCast(cast)
         insertMessages(messages)
     }
 
     @Transaction
     suspend fun insertWithContent(
         scene: SceneEntity,
-        characters: List<SceneCharacterEntity>,
+        cast: List<SceneCastEntity>,
         messages: List<SceneMessageEntity>,
     ) {
         insertScene(scene)
-        insertCharacters(characters)
+        insertCast(cast)
         insertMessages(messages)
     }
 }

@@ -2,7 +2,7 @@ package com.ogautam.letters.data.repository
 
 import com.ogautam.letters.data.dao.SceneDao
 import com.ogautam.letters.data.dao.SceneSummary
-import com.ogautam.letters.data.entity.SceneCharacterEntity
+import com.ogautam.letters.data.entity.SceneCastEntity
 import com.ogautam.letters.data.entity.SceneEntity
 import com.ogautam.letters.data.entity.SceneMessageEntity
 import com.ogautam.letters.data.entity.SceneWithContent
@@ -23,6 +23,10 @@ class SceneRepository(
 
     fun observeSummaries(): Flow<List<SceneSummary>> = dao.observeSummaries()
 
+    /** Pass null for the scenes that belong to no story. */
+    fun observeSummariesForStory(storyId: String?): Flow<List<SceneSummary>> =
+        dao.observeSummariesForStory(storyId)
+
     fun observeCount(): Flow<Int> = dao.observeCount()
 
     fun search(query: String): Flow<List<SceneSummary>> = dao.search(query.trim())
@@ -35,14 +39,14 @@ class SceneRepository(
 
     suspend fun create(
         scene: SceneEntity,
-        characters: List<SceneCharacterEntity>,
+        cast: List<SceneCastEntity>,
         messages: List<SceneMessageEntity>,
     ): SceneEntity {
         val now = Instant.now(clock)
         val stored = scene.copy(createdAt = now, updatedAt = now)
         dao.insertWithContent(
             scene = stored,
-            characters = reindexCharacters(stored.id, characters),
+            cast = reindexCast(stored.id, cast),
             messages = reindexMessages(stored.id, messages),
         )
         return stored
@@ -51,17 +55,20 @@ class SceneRepository(
     /** Full replace — the previous characters and messages are discarded, not merged. */
     suspend fun save(
         scene: SceneEntity,
-        characters: List<SceneCharacterEntity>,
+        cast: List<SceneCastEntity>,
         messages: List<SceneMessageEntity>,
     ): SceneEntity {
         val stored = scene.copy(updatedAt = Instant.now(clock))
         dao.replaceContent(
             scene = stored,
-            characters = reindexCharacters(stored.id, characters),
+            cast = reindexCast(stored.id, cast),
             messages = reindexMessages(stored.id, messages),
         )
         return stored
     }
+
+    suspend fun setStory(sceneId: String, storyId: String?) =
+        dao.setStory(sceneId, storyId, Instant.now(clock))
 
     suspend fun rename(id: String, name: String) {
         val scene = dao.getWithContent(id)?.scene ?: return
@@ -70,8 +77,21 @@ class SceneRepository(
 
     suspend fun delete(id: String) = dao.deleteById(id)
 
-    private fun reindexCharacters(sceneId: String, characters: List<SceneCharacterEntity>) =
-        characters.mapIndexed { index, c -> c.copy(sceneId = sceneId, orderIndex = index) }
+    /**
+     * Cast order comes from list position, and exactly one member is outgoing — the first,
+     * unless a role was already assigned. Callers never maintain either by hand.
+     */
+    private fun reindexCast(sceneId: String, cast: List<SceneCastEntity>): List<SceneCastEntity> {
+        val outgoingId = cast.firstOrNull { it.outgoing }?.characterId
+            ?: cast.firstOrNull()?.characterId
+        return cast.mapIndexed { index, member ->
+            member.copy(
+                sceneId = sceneId,
+                orderIndex = index,
+                outgoing = member.characterId == outgoingId,
+            )
+        }
+    }
 
     private fun reindexMessages(sceneId: String, messages: List<SceneMessageEntity>) =
         messages.mapIndexed { index, m -> m.copy(sceneId = sceneId, orderIndex = index) }

@@ -37,4 +37,25 @@ data class SceneMessageEntity(
     val time: LocalTime,
     val outgoing: Boolean,
     val orderIndex: Int,
+
+    /**
+     * A message that was typed and then erased. It never becomes a bubble — it plays as
+     * words appearing in the input bar and being taken back, and then nothing arrives.
+     *
+     * Only your own unsent words can be read: for anyone else, a chat shows a typing
+     * indicator that starts and stops, and never what they were going to say.
+     */
+    val unsent: Boolean = false,
+
+    /**
+     * Milliseconds per character for the typewriter reveal, or null to appear at once.
+     * The bubble is laid out at its final size and the text fills into it.
+     */
+    val revealPerCharMs: Long? = null,
+
+    /** Overrides the typing indicator's duration, which is otherwise derived from length. */
+    val typingMs: Long? = null,
+
+    /** Overrides the pause before this message, which is otherwise a fixed beat. */
+    val delayBeforeMs: Long? = null,
 )

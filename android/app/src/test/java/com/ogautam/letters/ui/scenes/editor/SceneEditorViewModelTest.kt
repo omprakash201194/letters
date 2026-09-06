@@ -3,7 +3,8 @@ package com.ogautam.letters.ui.scenes.editor
 import androidx.test.core.app.ApplicationProvider
 import com.ogautam.letters.data.DbTest
 import com.ogautam.letters.data.avatars.AvatarStore
-import com.ogautam.letters.data.entity.CharacterPalette
+import com.ogautam.letters.data.entity.CharacterEntity
+import com.ogautam.letters.data.repository.CharacterRepository
 import com.ogautam.letters.data.repository.SceneRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -14,6 +15,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -31,33 +33,45 @@ class SceneEditorViewModelTest : DbTest() {
         Dispatchers.resetMain()
     }
 
-    private fun repo() = SceneRepository(db.sceneDao(), clock)
+    private fun scenes() = SceneRepository(db.sceneDao(), clock)
 
-    private fun viewModel(repo: SceneRepository, sceneId: String? = null) =
-        SceneEditorViewModel(
-            repo,
-            AvatarStore(ApplicationProvider.getApplicationContext()),
-            sceneId,
-            clock,
-        )
+    private fun library() = CharacterRepository(db.characterDao(), clock)
+
+    private fun viewModel(
+        scenes: SceneRepository,
+        library: CharacterRepository,
+        sceneId: String? = null,
+        castIds: List<String> = emptyList(),
+        storyId: String? = null,
+    ) = SceneEditorViewModel(
+        repo = scenes,
+        characters = library,
+        avatars = AvatarStore(ApplicationProvider.getApplicationContext()),
+        sceneId = sceneId,
+        storyId = storyId,
+        initialCastIds = castIds,
+        clock = clock,
+    )
 
     private suspend fun SceneEditorViewModel.awaitLoaded() = state.first { !it.loading }
 
-    /**
-     * A save writes through Room's own executor, so it is not finished when [save] returns.
-     * Waiting on the state is the same thing the screen does.
-     */
     private suspend fun SceneEditorViewModel.awaitSaved() =
         state.first { !it.saving && !it.isDirty }
 
-    /** A two-character scene with one message from each. */
-    private suspend fun populated(repo: SceneRepository): SceneEditorViewModel {
-        val vm = viewModel(repo)
+    private suspend fun castOf(library: CharacterRepository): Pair<CharacterEntity, CharacterEntity> {
+        val you = library.create("You", isSelf = true)
+        val meera = library.create("Meera")
+        return you to meera
+    }
+
+    /** A scene with one message from each of two people. */
+    private suspend fun populated(
+        scenes: SceneRepository,
+        library: CharacterRepository,
+    ): SceneEditorViewModel {
+        val (you, meera) = castOf(library)
+        val vm = viewModel(scenes, library, castIds = listOf(you.id, meera.id))
         vm.awaitLoaded()
-        vm.addCharacter("You")
-        vm.addCharacter("Meera")
-        val you = vm.state.value.characters[0]
-        val meera = vm.state.value.characters[1]
 
         vm.selectCharacter(you.id)
         vm.onDraftChange("are you awake")
@@ -69,32 +83,19 @@ class SceneEditorViewModelTest : DbTest() {
     }
 
     @Test
-    fun `the first character added is the outgoing one`() = runTest {
-        val vm = viewModel(repo())
-        vm.awaitLoaded()
+    fun `the cast is taken from the library the wizard chose`() = runTest {
+        val library = library()
+        val (you, meera) = castOf(library)
 
-        vm.addCharacter("You")
-        vm.addCharacter("Meera")
+        val state = viewModel(scenes(), library, castIds = listOf(you.id, meera.id)).awaitLoaded()
 
-        val state = vm.state.value
-        assertEquals(state.characters.first().id, state.outgoingCharId)
+        assertEquals(listOf("You", "Meera"), state.characters.map { it.name })
+        assertEquals(you.id, state.outgoing?.id)
     }
 
     @Test
-    fun `characters take their colour from their position`() = runTest {
-        val vm = viewModel(repo())
-        vm.awaitLoaded()
-
-        listOf("You", "Meera", "Arjun").forEach(vm::addCharacter)
-
-        vm.state.value.characters.forEachIndexed { index, character ->
-            assertEquals(CharacterPalette.colorForIndex(index), character.color)
-        }
-    }
-
-    @Test
-    fun `a message is outgoing only when it comes from the first character`() = runTest {
-        val vm = populated(repo())
+    fun `a message is outgoing only when it comes from whoever speaks as you`() = runTest {
+        val vm = populated(scenes(), library())
 
         val (first, second) = vm.state.value.messages
         assertTrue(first.outgoing)
@@ -102,66 +103,86 @@ class SceneEditorViewModelTest : DbTest() {
     }
 
     @Test
-    fun `deleting a character deletes everything they said`() = runTest {
-        val vm = populated(repo())
-        val meera = vm.state.value.characters[1]
-
-        vm.removeCharacter(meera.id)
-
-        assertEquals(1, vm.state.value.characters.size)
-        assertEquals(1, vm.state.value.messages.size)
-        assertTrue(vm.state.value.messages.none { it.charId == meera.id })
-    }
-
-    /**
-     * Colour is assigned by position, so removing someone shifts everyone after them — and
-     * the colour is snapshotted onto their messages, which must shift with them.
-     */
-    @Test
-    fun `removing a character recolours the ones after it, messages included`() = runTest {
-        val vm = viewModel(repo())
+    fun `the outgoing role can be handed to someone else`() = runTest {
+        val library = library()
+        val (you, meera) = castOf(library)
+        val vm = viewModel(scenes(), library, castIds = listOf(you.id, meera.id))
         vm.awaitLoaded()
-        listOf("You", "Meera", "Arjun").forEach(vm::addCharacter)
-        val arjun = vm.state.value.characters[2]
-        vm.selectCharacter(arjun.id)
-        vm.onDraftChange("thank you")
+
+        vm.setOutgoing(meera.id)
+        vm.selectCharacter(meera.id)
+        vm.onDraftChange("my turn")
         vm.send()
 
-        vm.removeCharacter(vm.state.value.characters[1].id)
-
-        val moved = vm.state.value.characters.single { it.id == arjun.id }
-        assertEquals(1, moved.orderIndex)
-        assertEquals(CharacterPalette.colorForIndex(1), moved.color)
-        assertEquals(moved.color, vm.state.value.messages.single().charColor)
+        assertTrue(vm.state.value.messages.single().outgoing)
     }
 
-    /** The sender's name is snapshotted onto each message, so a rename has to reach them. */
+    /** Removing someone from a scene leaves what they already said in it. */
     @Test
-    fun `renaming a character renames what they already said`() = runTest {
-        val vm = populated(repo())
+    fun `removing someone from the cast keeps their messages`() = runTest {
+        val vm = populated(scenes(), library())
         val meera = vm.state.value.characters[1]
 
-        vm.renameCharacter(meera.id, "Meera R")
+        vm.removeFromCast(meera.id)
 
-        assertEquals("Meera R", vm.state.value.characters[1].name)
-        assertEquals("Meera R", vm.state.value.messages.single { it.charId == meera.id }.charName)
+        assertEquals(1, vm.state.value.characters.size)
+        assertEquals(2, vm.state.value.messages.size)
+        assertEquals("Meera", vm.state.value.messages[1].charName)
     }
 
     @Test
-    fun `deleting a message leaves the rest in order`() = runTest {
-        val vm = populated(repo())
+    fun `a library edit reaches the scene being written`() = runTest {
+        val library = library()
+        val vm = populated(scenes(), library)
+        val meera = vm.state.value.characters[1]
 
-        vm.deleteMessage(0)
+        vm.refreshCharacter(meera.copy(name = "Meera R"))
 
-        assertEquals(1, vm.state.value.messages.size)
-        assertEquals("unfortunately", vm.state.value.messages.single().text)
+        assertEquals("Meera R", vm.state.value.characters[1].name)
+        assertEquals("Meera R", vm.state.value.messages[1].charName)
+    }
+
+    @Test
+    fun `an unsent message is composed but never sent`() = runTest {
+        val library = library()
+        val (you, _) = castOf(library)
+        val vm = viewModel(scenes(), library, castIds = listOf(you.id))
+        vm.awaitLoaded()
+
+        vm.setComposingUnsent(true)
+        vm.onDraftChange("i miss you")
+        vm.send()
+
+        val message = vm.state.value.messages.single()
+        assertTrue(message.unsent)
+        assertEquals("i miss you", message.text)
+    }
+
+    @Test
+    fun `customising a message sets only that message's playback`() = runTest {
+        val vm = populated(scenes(), library())
+
+        vm.customiseMessage(
+            index = 1,
+            revealPerCharMs = 40L,
+            typingMs = 2_000L,
+            delayBeforeMs = 800L,
+            unsent = false,
+        )
+
+        val (first, second) = vm.state.value.messages
+        assertNull(first.revealPerCharMs)
+        assertEquals(40L, second.revealPerCharMs)
+        assertEquals(2_000L, second.typingMs)
+        assertEquals(800L, second.delayBeforeMs)
     }
 
     @Test
     fun `an empty draft sends nothing`() = runTest {
-        val vm = viewModel(repo())
+        val library = library()
+        val (you, _) = castOf(library)
+        val vm = viewModel(scenes(), library, castIds = listOf(you.id))
         vm.awaitLoaded()
-        vm.addCharacter("You")
 
         vm.onDraftChange("   ")
         vm.send()
@@ -171,31 +192,49 @@ class SceneEditorViewModelTest : DbTest() {
 
     @Test
     fun `saving writes the scene, then reloads with everything intact`() = runTest {
-        val repo = repo()
-        val vm = populated(repo)
+        val scenes = scenes()
+        val library = library()
+        val vm = populated(scenes, library)
         vm.onNameChange("Tuesday night")
 
         vm.save()
         vm.awaitSaved()
 
-        val summaries = repo.observeSummaries().first()
-        assertEquals(1, summaries.size)
-        assertEquals("Tuesday night", summaries.single().name)
-        assertEquals(2, summaries.single().characterCount)
-        assertEquals(2, summaries.single().messageCount)
+        val summary = scenes.observeSummaries().first().single()
+        assertEquals("Tuesday night", summary.name)
+        assertEquals(2, summary.characterCount)
+        assertEquals(2, summary.messageCount)
 
-        val reopened = viewModel(repo, summaries.single().id)
-        val state = reopened.awaitLoaded()
+        val state = viewModel(scenes, library, sceneId = summary.id).awaitLoaded()
         assertEquals("Tuesday night", state.name)
-        assertEquals(2, state.characters.size)
+        assertEquals(listOf("You", "Meera"), state.characters.map { it.name })
         assertEquals(listOf("are you awake", "unfortunately"), state.messages.map { it.text })
         assertFalse(state.isDirty)
     }
 
     @Test
+    fun `a scene saved into a story stays in it`() = runTest {
+        val scenes = scenes()
+        val library = library()
+        val story = com.ogautam.letters.data.repository.StoryRepository(db.storyDao(), clock)
+            .create("The group chat")
+        val (you, meera) = castOf(library)
+        val vm = viewModel(scenes, library, castIds = listOf(you.id, meera.id), storyId = story.id)
+        vm.awaitLoaded()
+        vm.onDraftChange("hi")
+        vm.send()
+
+        vm.save()
+        vm.awaitSaved()
+
+        assertEquals(1, scenes.observeSummariesForStory(story.id).first().size)
+        assertEquals(0, scenes.observeSummariesForStory(null).first().size)
+    }
+
+    @Test
     fun `saving twice updates the scene rather than making a second one`() = runTest {
-        val repo = repo()
-        val vm = populated(repo)
+        val scenes = scenes()
+        val vm = populated(scenes, library())
 
         vm.save()
         vm.awaitSaved()
@@ -204,41 +243,26 @@ class SceneEditorViewModelTest : DbTest() {
         vm.save()
         vm.awaitSaved()
 
-        val summaries = repo.observeSummaries().first()
+        val summaries = scenes.observeSummaries().first()
         assertEquals(1, summaries.size)
         assertEquals(3, summaries.single().messageCount)
     }
 
     @Test
     fun `an id that no longer exists reports missing`() = runTest {
-        val vm = viewModel(repo(), "does-not-exist")
-
-        assertTrue(vm.awaitLoaded().missing)
+        assertTrue(viewModel(scenes(), library(), sceneId = "nope").awaitLoaded().missing)
     }
 
     @Test
     fun `a scene with messages opens at the composer, an empty one at setup`() = runTest {
-        val repo = repo()
-        val saved = populated(repo)
+        val scenes = scenes()
+        val library = library()
+        val saved = populated(scenes, library)
         saved.save()
         saved.awaitSaved()
-        val id = repo.observeSummaries().first().single().id
+        val id = scenes.observeSummaries().first().single().id
 
-        assertEquals(EditorStep.COMPOSER, viewModel(repo, id).awaitLoaded().step)
-        assertEquals(EditorStep.SETUP, viewModel(repo).awaitLoaded().step)
-    }
-
-    @Test
-    fun `editing marks the scene dirty and saving clears it`() = runTest {
-        val vm = viewModel(repo())
-        vm.awaitLoaded()
-        assertFalse(vm.state.value.isDirty)
-
-        vm.addCharacter("You")
-        assertTrue(vm.state.value.isDirty)
-
-        vm.save()
-        vm.awaitSaved()
-        assertFalse(vm.state.value.isDirty)
+        assertEquals(EditorStep.COMPOSER, viewModel(scenes, library, sceneId = id).awaitLoaded().step)
+        assertEquals(EditorStep.SETUP, viewModel(scenes, library).awaitLoaded().step)
     }
 }

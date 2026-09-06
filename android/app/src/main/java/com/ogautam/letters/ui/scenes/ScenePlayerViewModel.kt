@@ -38,12 +38,12 @@ data class ScenePlayerUiState(
     val speed: PlaySpeed = PlaySpeed.DEFAULT,
     val isPlaying: Boolean = false,
     val timeMs: Long = 0L,
-    val playback: PlaybackState = PlaybackState(0, null, 0L),
+    val playback: PlaybackState = PlaybackState(visibleCount = 0, typingIndex = null, msSinceLastBubble = 0L),
     val export: ExportState = ExportState.Idle,
 ) {
     val messageCount: Int get() = messages.size
     val progress: Float
-        get() = if (messageCount == 0) 0f else playback.visibleCount.toFloat() / messageCount
+        get() = if (messageCount == 0) 0f else playback.playedCount.toFloat() / messageCount
 }
 
 class ScenePlayerViewModel(

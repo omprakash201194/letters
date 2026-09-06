@@ -6,15 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-**Letters** — a native Android app with two unrelated modules sharing one shell:
+**Letters** — a native Android app with two modules sharing one shell:
 
 | Module | What it does |
 |---|---|
-| **Chat Scenes** | WhatsApp-style fake-conversation builder. Create characters, compose a group chat message by message, replay it with typing indicators, bubble animations and synthesized tones, and export it as an MP4. |
+| **Chat Scenes** | WhatsApp-style fake-conversation builder. Keep a cast of characters, group scenes into stories, compose a group chat message by message — including messages that are typed and taken back — replay it with typing indicators, bubble animations and synthesized tones, and export it as an MP4. |
 | **Unsent Letters** | Ruled-paper letter editor. Recipient, subject, body, mood, date, and an optional "time capsule" seal that hides the letter until a future date. |
 
 Kotlin + Jetpack Compose, `minSdk` 26, local-first: **Room is the source of truth. There is no
 backend, no account, and nothing leaves the device.**
+
+The two modules turned out to be one idea: Unsent Letters is what was never said, and a scene
+can now hold what was almost sent. That is why an unsent message is a first-class thing here
+rather than a formatting trick.
 
 It began as a Spring Boot + React webapp deployed to k3s. That was removed once the Android port
 landed; `git log` has it if you ever need to look. Two things outlive it:
@@ -75,6 +79,58 @@ adb exec-out screencap -p > shot.png
 Without the `kvm` group it falls back to software emulation and crawls. When driving the UI from
 `adb`, disable the IME first (`adb shell ime disable com.android.inputmethod.latin/.LatinIME`) —
 otherwise the keyboard covers the controls and blind taps land on its keys.
+
+---
+
+## The character library, and what it costs
+
+Characters live in `characters`, not inside a scene. A scene names its people through
+`scene_cast`, which also records which of them is speaking as "you" — that is a role the scene
+assigns, not a property of a person, so the same character can narrate one scene and appear in
+another. Colour belongs to the character, so Meera is the same colour everywhere.
+
+**Editing the library never rewrites a scene already written.** A message carries its own
+snapshot of the sender's name, colour and avatar, and that snapshot is what plays back. Rename
+someone and last month's scene still plays as it was written — which is also why its exported
+video still matches it. The open scene in the editor does follow a library edit, because you are
+still writing it. Deleting a character removes them from casts; the scenes they were in keep
+every word they said.
+
+Stories are folders. Deleting one keeps its scenes; they move back out into the ungrouped list.
+`scenes.storyId` deliberately carries **no** foreign key — adding one to an existing table means
+rebuilding it, and SQLite rewrites the references of every table pointing at it while you do.
+
+**The v1 → v2 migration is the most important code in the repo.** There are scenes on devices
+that exist nowhere else. It copies every per-scene character into the library, deduplicates by
+name and colour, rebuilds each cast, and never uses `fallbackToDestructiveMigration`. It is
+covered by an instrumented test that seeds a real v1 database and opens the result through the
+real Room builder, so the schema is validated as well as the data.
+
+---
+
+## Words that were never sent
+
+A message can be marked `unsent`: it is typed out, held, and taken back, and never becomes a
+bubble. It is the same idea as the other module, and the medium supplies the constraint that
+makes it work — **you can only ever read your own unsent words.** Yours appear in the input bar,
+where you would really have typed them. Someone else's show as a typing indicator that starts and
+stops, and the sentence behind it is never revealed, because that is all a chat would ever show
+you.
+
+- **The input bar is drawn on every frame of playback and export**, not only while something is
+  being written into it — a bar that appeared for one moment would read as a mistake. It is off in
+  the composer, which has a real one.
+- **Unsent messages are excluded from the laid-out transcript during playback.** A playback state
+  counts only the bubbles that exist; measuring the unsent ones as well shifted every later bubble
+  up by one and hid the last of them entirely. In the composer they *are* drawn — faint, dashed —
+  so they can be found and edited.
+- The progress counter counts beats played, not bubbles. A scene is not two thirds finished
+  because one of its beats left nothing behind.
+
+Per message, the customise sheet also sets a typewriter reveal (the bubble arrives at its final
+size and the letters fill in — a clip over the laid-out text, never a re-measure, or the whole
+transcript would reflow every frame), how long the other person appears to be typing, and how long
+to wait before the message lands.
 
 ---
 
