@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Exported scenes. App-specific external storage, so no permission is needed. -->
+    <external-files-path name="movies" path="Movies/" />
+</paths>

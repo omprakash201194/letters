@@ -1,20 +1,36 @@
 package com.ogautam.letters.ui.scenes
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.ogautam.letters.LettersApplication
 import com.ogautam.letters.audio.SceneTones
 import com.ogautam.letters.audio.TonePlayer
 import com.ogautam.letters.data.entity.SceneMessageEntity
+import com.ogautam.letters.export.SceneExporter
 import com.ogautam.letters.ui.scenes.chat.ChatTheme
 import com.ogautam.letters.ui.scenes.chat.PlaySpeed
 import com.ogautam.letters.ui.scenes.chat.PlaybackState
 import com.ogautam.letters.ui.scenes.chat.PlaybackTimeline
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/** Where an export has got to. */
+sealed interface ExportState {
+    data object Idle : ExportState
+    data class Running(val fraction: Float) : ExportState
+    data class Done(val file: File) : ExportState
+    data class Failed(val message: String) : ExportState
+}
 
 data class ScenePlayerUiState(
     val sceneName: String,
@@ -23,6 +39,7 @@ data class ScenePlayerUiState(
     val isPlaying: Boolean = false,
     val timeMs: Long = 0L,
     val playback: PlaybackState = PlaybackState(0, null, 0L),
+    val export: ExportState = ExportState.Idle,
 ) {
     val messageCount: Int get() = messages.size
     val progress: Float
@@ -33,6 +50,7 @@ class ScenePlayerViewModel(
     sceneName: String,
     messages: List<SceneMessageEntity>,
     private val tones: SceneTones = TonePlayer(),
+    private val exporter: SceneExporter? = null,
 ) : ViewModel() {
 
     private var timeline = PlaybackTimeline(messages, PlaySpeed.DEFAULT)
@@ -124,6 +142,43 @@ class ScenePlayerViewModel(
         }
     }
 
+    /**
+     * Exports on the IO dispatcher: encoding is hundreds of frames of drawing and colour
+     * conversion, and it must not be on the frame clock.
+     */
+    fun export() {
+        val exporter = exporter ?: return
+        val current = _state.value
+        if (current.export is ExportState.Running || current.messages.isEmpty()) return
+
+        _state.update { it.copy(isPlaying = false, export = ExportState.Running(0f)) }
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    exporter.export(
+                        sceneName = current.sceneName,
+                        messages = current.messages,
+                        speed = current.speed,
+                    ) { fraction ->
+                        _state.update { it.copy(export = ExportState.Running(fraction)) }
+                    }
+                }
+            }
+            _state.update {
+                it.copy(
+                    export = result.fold(
+                        onSuccess = ExportState::Done,
+                        onFailure = { error ->
+                            ExportState.Failed(error.message ?: "the export could not finish")
+                        },
+                    ),
+                )
+            }
+        }
+    }
+
+    fun dismissExport() = _state.update { it.copy(export = ExportState.Idle) }
+
     override fun onCleared() {
         tones.release()
     }
@@ -133,7 +188,14 @@ class ScenePlayerViewModel(
             sceneName: String,
             messages: List<SceneMessageEntity>,
         ): ViewModelProvider.Factory = viewModelFactory {
-            initializer { ScenePlayerViewModel(sceneName, messages) }
+            initializer {
+                val app = this[APPLICATION_KEY] as LettersApplication
+                ScenePlayerViewModel(
+                    sceneName = sceneName,
+                    messages = messages,
+                    exporter = SceneExporter(app, app.avatars::load),
+                )
+            }
         }
     }
 }

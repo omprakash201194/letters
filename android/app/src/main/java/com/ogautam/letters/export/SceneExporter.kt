@@ -1,0 +1,353 @@
+package com.ogautam.letters.export
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
+import android.media.MediaFormat
+import android.media.MediaMuxer
+import android.os.Environment
+import com.ogautam.letters.audio.ToneSynth
+import com.ogautam.letters.data.entity.SceneMessageEntity
+import com.ogautam.letters.ui.scenes.chat.ChatRenderer
+import com.ogautam.letters.ui.scenes.chat.PlaySpeed
+import com.ogautam.letters.ui.scenes.chat.PlaybackTimeline
+import java.io.File
+import java.nio.ByteBuffer
+import kotlin.math.ceil
+import kotlin.math.max
+import kotlin.math.roundToInt
+
+/**
+ * Renders a scene to an MP4.
+ *
+ * Every frame comes from the same [ChatRenderer] that draws the preview, sampled from the
+ * same [PlaybackTimeline] the preview plays — at a fixed frame interval instead of in real
+ * time. That is the whole reason playback was built as a function of time rather than a
+ * chain of timeouts: what plays on screen is what lands in the file.
+ *
+ * The audio is laid out the same way. The tones are synthesized to PCM and mixed into one
+ * buffer at sample-accurate offsets, so sound and picture cannot drift apart — they are
+ * both derived from the same timeline rather than recorded alongside each other.
+ */
+class SceneExporter(
+    private val context: Context,
+    private val avatarFor: (String?) -> Bitmap? = { null },
+) {
+
+    /** Progress from 0 to 1, reported as frames are encoded. */
+    fun interface Progress {
+        fun onProgress(fraction: Float)
+    }
+
+    fun export(
+        sceneName: String,
+        messages: List<SceneMessageEntity>,
+        speed: PlaySpeed = PlaySpeed.DEFAULT,
+        progress: Progress = Progress {},
+    ): File {
+        require(messages.isNotEmpty()) { "a scene with no messages has nothing to export" }
+
+        val timeline = PlaybackTimeline(messages, speed)
+        val durationMs = timeline.totalMs + VideoSpec.TAIL_MS
+        val frameCount = ceil(durationMs * VideoSpec.FPS / 1_000.0).toInt()
+
+        val output = outputFile(sceneName)
+        val muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+
+        try {
+            // Audio first, buffered whole: the muxer needs every track added before it
+            // starts, and the audio is small enough to hold (seconds of AAC, not minutes).
+            val pcm = SceneAudioTrack.build(
+                timeline = timeline,
+                outgoing = { index -> messages[index].outgoing },
+                totalMs = durationMs,
+            )
+            val audio = encodeAudio(pcm)
+
+            encodeVideo(
+                muxer = muxer,
+                timeline = timeline,
+                messages = messages,
+                frameCount = frameCount,
+                progress = progress,
+                audio = audio,
+            )
+        } catch (error: Throwable) {
+            runCatching { muxer.release() }
+            output.delete()
+            throw error
+        }
+        return output
+    }
+
+    // ── video ──────────────────────────────────────────────────────────────
+
+    private fun encodeVideo(
+        muxer: MediaMuxer,
+        timeline: PlaybackTimeline,
+        messages: List<SceneMessageEntity>,
+        frameCount: Int,
+        progress: Progress,
+        audio: EncodedAudio,
+    ) {
+        val colorFormat = pickColorFormat()
+        val format = MediaFormat.createVideoFormat(
+            VideoSpec.VIDEO_MIME,
+            VideoSpec.WIDTH,
+            VideoSpec.HEIGHT,
+        ).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat)
+            setInteger(MediaFormat.KEY_BIT_RATE, VideoSpec.BIT_RATE)
+            setInteger(MediaFormat.KEY_FRAME_RATE, VideoSpec.FPS)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, VideoSpec.I_FRAME_INTERVAL_SECONDS)
+        }
+
+        val codec = MediaCodec.createEncoderByType(VideoSpec.VIDEO_MIME)
+        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        codec.start()
+
+        val renderer = ChatRenderer(VideoSpec.WIDTH.toFloat(), VideoSpec.DENSITY) {
+            avatarFor(it.charAvatarPath)
+        }
+        renderer.setMessages(messages)
+
+        val bitmap = Bitmap.createBitmap(VideoSpec.WIDTH, VideoSpec.HEIGHT, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val pixels = IntArray(VideoSpec.WIDTH * VideoSpec.HEIGHT)
+        val yuv = ByteArray(YuvConverter.bufferSize(VideoSpec.WIDTH, VideoSpec.HEIGHT))
+
+        val info = MediaCodec.BufferInfo()
+        var videoTrack = -1
+        var muxerStarted = false
+        var frame = 0
+
+        try {
+            while (true) {
+                if (frame <= frameCount) {
+                    val inputIndex = codec.dequeueInputBuffer(TIMEOUT_US)
+                    if (inputIndex >= 0) {
+                        val presentationUs = frame * 1_000_000L / VideoSpec.FPS
+                        if (frame == frameCount) {
+                            codec.queueInputBuffer(
+                                inputIndex, 0, 0, presentationUs,
+                                MediaCodec.BUFFER_FLAG_END_OF_STREAM,
+                            )
+                        } else {
+                            drawFrame(renderer, timeline, canvas, frame)
+                            bitmap.getPixels(
+                                pixels, 0, VideoSpec.WIDTH, 0, 0,
+                                VideoSpec.WIDTH, VideoSpec.HEIGHT,
+                            )
+                            YuvConverter.convert(
+                                pixels, VideoSpec.WIDTH, VideoSpec.HEIGHT, colorFormat, yuv,
+                            )
+                            codec.getInputBuffer(inputIndex)!!.apply { clear(); put(yuv) }
+                            codec.queueInputBuffer(inputIndex, 0, yuv.size, presentationUs, 0)
+                            progress.onProgress(frame.toFloat() / frameCount)
+                        }
+                        frame++
+                    }
+                }
+
+                when (val outputIndex = codec.dequeueOutputBuffer(info, TIMEOUT_US)) {
+                    MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
+
+                    MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        videoTrack = muxer.addTrack(codec.outputFormat)
+                        val audioTrack = muxer.addTrack(audio.format)
+                        muxer.start()
+                        muxerStarted = true
+                        audio.writeTo(muxer, audioTrack)
+                    }
+
+                    else -> {
+                        if (outputIndex < 0) continue
+                        val encoded = codec.getOutputBuffer(outputIndex)!!
+                        // reason: codec config bytes go into the track format, not the stream
+                        val isConfig = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+                        if (info.size > 0 && muxerStarted && !isConfig) {
+                            encoded.position(info.offset)
+                            encoded.limit(info.offset + info.size)
+                            muxer.writeSampleData(videoTrack, encoded, info)
+                        }
+                        codec.releaseOutputBuffer(outputIndex, false)
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                    }
+                }
+            }
+            progress.onProgress(1f)
+        } finally {
+            runCatching { codec.stop() }
+            codec.release()
+            bitmap.recycle()
+            if (muxerStarted) runCatching { muxer.stop() }
+            muxer.release()
+        }
+    }
+
+    private fun drawFrame(
+        renderer: ChatRenderer,
+        timeline: PlaybackTimeline,
+        canvas: Canvas,
+        frame: Int,
+    ) {
+        val timeMs = frame * 1_000L / VideoSpec.FPS
+        val state = timeline.stateAt(timeMs)
+        // The exported frame scrolls exactly as the preview does — pinned to the bottom.
+        val scrollY = max(0f, renderer.contentHeight(state) - VideoSpec.HEIGHT)
+        renderer.draw(
+            canvas = canvas,
+            state = state,
+            elapsedMs = timeMs,
+            scrollY = scrollY,
+            viewportHeight = VideoSpec.HEIGHT.toFloat(),
+        )
+    }
+
+    /** The first colour format this encoder and the converter both understand. */
+    private fun pickColorFormat(): Int {
+        val encoder = MediaCodecList(MediaCodecList.REGULAR_CODECS)
+            .codecInfos
+            .firstOrNull { info ->
+                info.isEncoder && info.supportedTypes.any { it.equals(VideoSpec.VIDEO_MIME, true) }
+            } ?: error("this device has no AVC encoder")
+
+        val supported = encoder
+            .getCapabilitiesForType(VideoSpec.VIDEO_MIME)
+            .colorFormats
+            .toSet()
+
+        return YuvConverter.SUPPORTED.firstOrNull { it in supported }
+            ?: error("the AVC encoder wants a colour format this build cannot write")
+    }
+
+    // ── audio ──────────────────────────────────────────────────────────────
+
+    /** AAC packets held until the muxer is started, with the format the muxer needs. */
+    private class EncodedAudio(
+        val format: MediaFormat,
+        private val packets: List<Pair<MediaCodec.BufferInfo, ByteArray>>,
+    ) {
+        fun writeTo(muxer: MediaMuxer, track: Int) {
+            packets.forEach { (info, bytes) ->
+                muxer.writeSampleData(track, ByteBuffer.wrap(bytes), info)
+            }
+        }
+    }
+
+    private fun encodeAudio(pcm: ShortArray): EncodedAudio {
+        val format = MediaFormat.createAudioFormat(
+            VideoSpec.AUDIO_MIME,
+            ToneSynth.SAMPLE_RATE,
+            ToneSynth.CHANNELS,
+        ).apply {
+            setInteger(
+                MediaFormat.KEY_AAC_PROFILE,
+                MediaCodecInfo.CodecProfileLevel.AACObjectLC,
+            )
+            setInteger(MediaFormat.KEY_BIT_RATE, VideoSpec.AUDIO_BIT_RATE)
+            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_AUDIO_INPUT)
+        }
+
+        val codec = MediaCodec.createEncoderByType(VideoSpec.AUDIO_MIME)
+        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        codec.start()
+
+        val packets = mutableListOf<Pair<MediaCodec.BufferInfo, ByteArray>>()
+        var outputFormat: MediaFormat? = null
+        val info = MediaCodec.BufferInfo()
+        var sampleOffset = 0
+        var inputDone = false
+
+        try {
+            while (true) {
+                if (!inputDone) {
+                    val inputIndex = codec.dequeueInputBuffer(TIMEOUT_US)
+                    if (inputIndex >= 0) {
+                        val buffer = codec.getInputBuffer(inputIndex)!!
+                        buffer.clear()
+                        val capacitySamples = buffer.remaining() / Short.SIZE_BYTES
+                        val count = minOf(capacitySamples, pcm.size - sampleOffset)
+                        val presentationUs =
+                            sampleOffset.toLong() * 1_000_000L / ToneSynth.SAMPLE_RATE
+
+                        if (count <= 0) {
+                            codec.queueInputBuffer(
+                                inputIndex, 0, 0, presentationUs,
+                                MediaCodec.BUFFER_FLAG_END_OF_STREAM,
+                            )
+                            inputDone = true
+                        } else {
+                            buffer.asShortBuffer().put(pcm, sampleOffset, count)
+                            codec.queueInputBuffer(
+                                inputIndex, 0, count * Short.SIZE_BYTES, presentationUs, 0,
+                            )
+                            sampleOffset += count
+                        }
+                    }
+                }
+
+                when (val outputIndex = codec.dequeueOutputBuffer(info, TIMEOUT_US)) {
+                    MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
+                    MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> outputFormat = codec.outputFormat
+                    else -> {
+                        if (outputIndex < 0) continue
+                        val encoded = codec.getOutputBuffer(outputIndex)!!
+                        val isConfig = info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+                        if (info.size > 0 && !isConfig) {
+                            encoded.position(info.offset)
+                            encoded.limit(info.offset + info.size)
+                            val bytes = ByteArray(info.size)
+                            encoded.get(bytes)
+                            val copy = MediaCodec.BufferInfo().apply {
+                                set(0, bytes.size, info.presentationTimeUs, info.flags)
+                            }
+                            packets += copy to bytes
+                        }
+                        codec.releaseOutputBuffer(outputIndex, false)
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                    }
+                }
+            }
+        } finally {
+            runCatching { codec.stop() }
+            codec.release()
+        }
+
+        return EncodedAudio(
+            format = outputFormat ?: error("the audio encoder never reported a format"),
+            packets = packets,
+        )
+    }
+
+    // ── output ─────────────────────────────────────────────────────────────
+
+    private fun outputFile(sceneName: String): File {
+        val directory = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+            ?: context.filesDir
+        directory.mkdirs()
+        return File(directory, "${slug(sceneName)}-${System.currentTimeMillis()}.mp4")
+    }
+
+    companion object {
+        private const val TIMEOUT_US = 10_000L
+        private const val MAX_AUDIO_INPUT = 16_384
+
+        fun slug(name: String): String = name.trim()
+            .lowercase()
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .trim('-')
+            .ifBlank { "scene" }
+            .take(40)
+
+        /** How long the exported file will be, for showing before the export starts. */
+        fun durationMs(messages: List<SceneMessageEntity>, speed: PlaySpeed): Long =
+            PlaybackTimeline(messages, speed).totalMs + VideoSpec.TAIL_MS
+
+        fun estimatedFrames(messages: List<SceneMessageEntity>, speed: PlaySpeed): Int =
+            ceil(durationMs(messages, speed) * VideoSpec.FPS / 1_000.0).roundToInt()
+    }
+}

@@ -225,7 +225,7 @@ Decisions are locked; the full requirements spec is linked at the top of this fi
 - **Message `time` becomes a `LocalTime`**, not a pre-rendered locale string. The web persists the output of `toLocaleTimeString()`, so a scene composed on a 24-hour device renders `14:32` forever.
 - **One Canvas renderer serves both the live preview and the MP4 encoder**, so what plays in the app is what lands in the file. This is why the chat surface is Canvas rather than Compose layout.
 
-Build order: **1** Room data layer ✅ → **2** shell + Letters ✅ → **3** Canvas chat renderer ✅ → **4** scene editor ✅ → **5** MP4 export.
+Build order: **1** Room data layer ✅ → **2** shell + Letters ✅ → **3** Canvas chat renderer ✅ → **4** scene editor ✅ → **5** MP4 export ✅. **The port is complete.**
 
 Phase 2 shipped the home shell (daily prompt, search across both modules, pen name), the letters
 list and the full paper editor — moods, ruled body, time capsule, dirty-state guard. Three things
@@ -284,7 +284,23 @@ preview), as the web app had it, because a scene is not saved between them.
 - The keyboard's action key sends, as Enter did on the web. Without an explicit `ImeAction.Send`
   the field just takes a newline into the middle of a message.
 
-MP4 export risk: audio sync is the hardest part — tones must be synthesized to PCM and written to the `MediaMuxer` audio track at exact frame timestamps, which is why the tones stay synthesized rather than becoming bundled WAVs.
+Phase 5 exports the scene to an MP4, from the ▾ MP4 button on the preview screen. 720×1280, 30fps,
+H.264 + AAC, written to the app's external files directory and handed to other apps through a
+FileProvider.
+
+- **Audio sync was the risk, and the timeline is what removed it.** Picture and sound are both
+  derived from the same `PlaybackTimeline`: frames are sampled at fixed intervals, and the tones
+  are mixed into one PCM buffer at sample-accurate offsets by `SceneAudioTrack`. Neither is
+  recorded alongside the other, so there is nothing to drift.
+- **The encoder is fed ByteBuffers, not a Surface.** A Surface input would mean rendering through
+  OpenGL, which would be a second renderer — the thing this whole design exists to avoid. The cost
+  is an ARGB→YUV420 conversion per frame (`YuvConverter`), paid in a background export.
+- **The muxer needs every track added before it starts**, so the audio is encoded first and its
+  packets held in memory (seconds of AAC), then written once the video's format arrives.
+- Export is verified by an **instrumented test** (`app/src/androidTest`) that exports a scene on a
+  device and decodes the frames back, asserting the background before the first message and the
+  outgoing bubble's green after the last. Run it with `./gradlew connectedDebugAndroidTest`; the
+  JVM tests cannot cover this because it needs a codec.
 
 ---
 

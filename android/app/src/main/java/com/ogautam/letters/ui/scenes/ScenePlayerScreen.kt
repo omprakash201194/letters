@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,12 +41,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ogautam.letters.ui.common.BackChevron
 import com.ogautam.letters.data.entity.SceneMessageEntity
+import com.ogautam.letters.ui.common.HeaderButton
 import com.ogautam.letters.ui.common.ScreenHeader
+import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import com.ogautam.letters.ui.scenes.chat.ChatCanvas
 import com.ogautam.letters.ui.scenes.chat.ChatTheme
 import com.ogautam.letters.ui.scenes.chat.PlaySpeed
 import com.ogautam.letters.ui.theme.LettersPalette
+import androidx.core.content.FileProvider
+import java.io.File
 import kotlin.math.roundToInt
 
 /**
@@ -84,15 +94,24 @@ fun ScenePlayerScreen(
                 BackChevron(Color.White, onBack)
                 Spacer(Modifier.width(4.dp))
                 Column {
-                    Text(state.sceneName, 15, FontWeight.SemiBold, Color.White)
+                    Text(
+                        state.sceneName,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                    )
                     Text(
                         "${state.messageCount} messages",
-                        11,
-                        FontWeight.Normal,
-                        Color.White.copy(alpha = 0.8f),
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.8f),
                     )
                 }
             }
+            HeaderButton(
+                label = if (state.export is ExportState.Running) "…" else "⬇ MP4",
+                onClick = viewModel::export,
+                enabled = state.export !is ExportState.Running && state.messages.isNotEmpty(),
+            )
         }
 
         ChatCanvas(
@@ -108,6 +127,99 @@ fun ScenePlayerScreen(
             onSeekToIndex = viewModel::seekToIndex,
             onSpeed = viewModel::setSpeed,
             onPlayPause = viewModel::playPause,
+        )
+    }
+
+    val context = LocalContext.current
+    ExportDialogs(
+        state = state,
+        onDismiss = viewModel::dismissExport,
+        onShare = { file -> shareVideo(context, file) },
+    )
+}
+
+/**
+ * Hands the file to another app through the FileProvider. The video lives in this app's own
+ * external files directory, so a raw `file://` URI would be rejected.
+ */
+private fun shareVideo(context: Context, file: File) {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "video/mp4"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(intent, "Share scene"))
+    }
+}
+
+@Composable
+private fun ExportDialogs(
+    state: ScenePlayerUiState,
+    onDismiss: () -> Unit,
+    onShare: (File) -> Unit,
+) {
+    when (val export = state.export) {
+        is ExportState.Idle -> Unit
+
+        is ExportState.Running -> AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Exporting…", color = LettersPalette.GreenInk) },
+            text = {
+                Column {
+                    Text(
+                        "Drawing every frame of the scene. This takes a moment.",
+                        fontSize = 14.sp,
+                        color = Color(0xFF555555),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    LinearProgressIndicator(
+                        progress = { export.fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = LettersPalette.Teal,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "${(export.fraction * 100).roundToInt()}%",
+                        fontSize = 12.sp,
+                        color = Color(0xFF888888),
+                    )
+                }
+            },
+            confirmButton = {},
+            containerColor = Color.White,
+        )
+
+        is ExportState.Done -> AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Scene exported", color = LettersPalette.GreenInk) },
+            text = {
+                Text(
+                    "Saved as ${export.file.name} (${export.file.length() / 1024} KB).",
+                    fontSize = 14.sp,
+                    color = Color(0xFF555555),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { onShare(export.file) }) {
+                    Text("Share", color = LettersPalette.Teal)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) { Text("Done", color = LettersPalette.Muted) }
+            },
+            containerColor = Color.White,
+        )
+
+        is ExportState.Failed -> AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Export failed", color = LettersPalette.Danger) },
+            text = { Text(export.message, fontSize = 14.sp, color = Color(0xFF555555)) },
+            confirmButton = {
+                TextButton(onClick = onDismiss) { Text("OK", color = LettersPalette.Teal) }
+            },
+            containerColor = Color.White,
         )
     }
 }
@@ -151,9 +263,8 @@ private fun PlayerControls(
             Spacer(Modifier.width(8.dp))
             Text(
                 "${state.playback.visibleCount} / ${state.messageCount}",
-                12,
-                FontWeight.Normal,
-                Color(0xFF888888),
+                fontSize = 12.sp,
+                color = Color(0xFF888888),
             )
         }
 
@@ -176,9 +287,8 @@ private fun PlayerControls(
                     ) {
                         Text(
                             speed.label,
-                            12,
-                            FontWeight.Normal,
-                            if (selected) Color.White else Color(0xFF555555),
+                            fontSize = 12.sp,
+                            color = if (selected) Color.White else Color(0xFF555555),
                         )
                     }
                 }
@@ -192,18 +302,13 @@ private fun PlayerControls(
                     .clickable(onClick = onPlayPause),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(if (state.isPlaying) "⏸" else "▶", 18, FontWeight.Normal, Color.White)
+                Text(
+                    if (state.isPlaying) "⏸" else "▶",
+                    fontSize = 18.sp,
+                    color = Color.White,
+                )
             }
         }
     }
 }
 
-@Composable
-private fun Text(text: String, size: Int, weight: FontWeight, color: Color) {
-    androidx.compose.material3.Text(
-        text = text,
-        fontSize = size.sp,
-        fontWeight = weight,
-        color = color,
-    )
-}
