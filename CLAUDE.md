@@ -6,23 +6,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-**Letters** — a personal webapp with two unrelated modules sharing one shell:
+**Letters** — a native Android app with two unrelated modules sharing one shell:
 
 | Module | What it does |
 |---|---|
-| **Chat Scenes** | WhatsApp-style fake-conversation builder. Create characters, compose a group chat message by message, replay it with typing indicators, bubble animations and synthesized tones. |
-| **Unsent Letters** | Ruled-paper letter editor. Recipient, subject, body, mood, date, and an optional "time capsule" seal that hides the letter until a future date. Exports as PNG. |
+| **Chat Scenes** | WhatsApp-style fake-conversation builder. Create characters, compose a group chat message by message, replay it with typing indicators, bubble animations and synthesized tones, and export it as an MP4. |
+| **Unsent Letters** | Ruled-paper letter editor. Recipient, subject, body, mood, date, and an optional "time capsule" seal that hides the letter until a future date. |
 
-Spring Boot 3.4.4 backend (Java 21) + React 18 / Vite / Tailwind frontend, deployed to k3s in the `homelab` namespace at `letters.homelab.local`.
+Kotlin + Jetpack Compose, `minSdk` 26, local-first: **Room is the source of truth. There is no
+backend, no account, and nothing leaves the device.**
 
-## Current Status — read this first
+It began as a Spring Boot + React webapp deployed to k3s. That was removed once the Android port
+landed; `git log` has it if you ever need to look. Two things outlive it:
 
-- **Not running.** `letters-backend` and `letters-frontend` are both scaled to **0 replicas** in `homelab`. Services and ingress still exist. The manifests say `replicas: 1`, so this is manual drift, not config.
-- **No data.** `letters`, `scenes`, `scene_characters` and `scene_messages` are all empty in the shared `homelab` Postgres.
-- **A native Android port is the plan of record.** Decisions locked: **local-first Room, no backend**; **Kotlin + Compose with a Canvas-drawn chat surface**; **MP4 export in scope** as the final phase. The full porting spec lives at
-  <https://claude.ai/code/artifact/db7d3c98-197b-438a-842d-0a6a787bc289>.
-
-To bring the webapp back up: `kubectl scale deploy/letters-backend deploy/letters-frontend -n homelab --replicas=1`. Images `1.0.0` are already in the local registry.
+- The k3s objects (`letters-backend`, `letters-frontend`, their services and the
+  `letters.homelab.local` ingress) still exist in the `homelab` namespace at 0 replicas. Harmless,
+  but orphaned — nothing in this repo deploys or removes them any more.
+- The visual and behavioural specs below *are* the web app's, preserved deliberately. The point of
+  the port was that it looks and moves identically.
 
 ---
 
@@ -30,102 +31,88 @@ To bring the webapp back up: `kubectl scale deploy/letters-backend deploy/letter
 
 ```
 letters/
-├── backend/            Spring Boot 3.4.4, Java 21, JPA + Firebase Admin
-│   ├── Dockerfile      Multi-stage — Maven build → eclipse-temurin:21-jre-alpine
-│   ├── pom.xml
-│   └── src/main/java/com/ogautam/letters/
-│       ├── config/     FirebaseConfig, FirebaseProperties, WebConfig
-│       ├── controller/ LetterController, SceneController
-│       ├── dto/        Request/response records
-│       ├── model/      Letter, Scene, SceneCharacter, SceneMessage
-│       ├── repository/ LetterRepository, SceneRepository
-│       ├── security/   FirebaseAuthFilter, FirebaseUserPrincipal, SecurityConfig
-│       └── service/    LetterService, SceneService
-├── frontend/           React 18 + Vite + Tailwind, served by nginx
-│   ├── Dockerfile
-│   ├── nginx.conf      SPA fallback + /api/ proxy to letters-backend:8080
-│   └── src/
-│       ├── pages/      Home, Login, Scenes, SceneEditor, Letters, LetterEditor
-│       ├── services/   api.ts — axios client, attaches Firebase ID token
-│       ├── lib/        audio.ts (Web Audio tones), firebase.ts, utils.ts
-│       └── hooks/      useAuth.ts
-├── k8s/                Deployments, Services, Ingress, SealedSecrets, SECRETS.md
-├── build-and-push.sh   Builds and pushes both images to localhost:30500
-├── DEPLOY.md           Step-by-step deployment checklist
-├── index.html          LEGACY — the original single-file prototype. Superseded by
-│                       frontend/. Kept only as a reference for the visual spec.
-└── CLAUDE.md           This file
+└── android/
+    └── app/src/
+        ├── main/java/com/ogautam/letters/
+        │   ├── data/          Room entities, DAOs, repositories, DataStore prefs, avatar files
+        │   ├── audio/         ToneSynth (PCM) + TonePlayer
+        │   ├── export/        MP4 encoder — SceneExporter, YuvConverter, SceneAudioTrack
+        │   └── ui/
+        │       ├── common/    Shared chrome, date field, formatting, the daily prompt
+        │       ├── home/      The shell: prompt, search, module tiles, pen name
+        │       ├── letters/   Unsent Letters — list and paper editor
+        │       ├── scenes/    Scene list, player, and chat/ — the Canvas renderer
+        │       └── theme/     Palette, typography, Lora
+        ├── test/              JVM + Robolectric
+        └── androidTest/       The export, which needs a real codec
 ```
 
 ---
 
-## Architecture
+## Build & Test
 
-### Auth
-Firebase Google sign-in on the frontend. Every request carries `Authorization: Bearer <Firebase ID token>` (attached by an axios interceptor). `FirebaseAuthFilter` verifies the token and sets a `FirebaseUserPrincipal` carrying the UID. Every row is scoped by `user_id`; the security chain is stateless and permits only `/actuator/**` anonymously.
-
-### The `/api` prefix gotcha
-Controllers are mapped at `/letters` and `/scenes` — **no `/api` prefix**. The frontend calls `/api/letters`, and `nginx.conf` proxies `location /api/` to `http://letters-backend:8080/` with a **trailing slash**, which strips `/api` before forwarding. Adding `/api` to a controller mapping will 404.
-
-### Persistence
-JPA with `ddl-auto: update` against the shared `homelab` Postgres. No Flyway. Four tables:
-
-| Entity | Notes |
-|---|---|
-| `Letter` | Flat. `sealedUntil` null = not sealed. |
-| `Scene` | Owns characters and messages, both `cascade = ALL, orphanRemoval = true`, ordered by `orderIndex`. |
-| `SceneCharacter` | Client-generated string id. `avatar` is a base64 data URL in a TEXT column. |
-| `SceneMessage` | Carries a **snapshot** of the sender's name, color and avatar. |
-
-Two model decisions that are load-bearing, not accidents:
-- **Sender fields are denormalised onto each message** so playback stays correct after a character is edited or deleted. Do not "fix" this by joining to `scene_characters`.
-- **Scene updates clear and re-insert** both child collections rather than diffing. Scenes are small (< 100 messages) and this is deliberately simpler.
-
-### API surface
-
-```
-GET    /letters          list summaries (contentPreview = first 120 chars)
-POST   /letters          create
-GET    /letters/{id}     detail
-PUT    /letters/{id}     update
-DELETE /letters/{id}
-
-GET    /scenes           list summaries (character + message counts)
-POST   /scenes           create
-GET    /scenes/{id}      detail (characters + messages)
-PUT    /scenes/{id}      full replace
-PATCH  /scenes/{id}/name rename only
-DELETE /scenes/{id}
+```bash
+cd android
+./gradlew assembleDebug              # APK
+./gradlew testDebugUnitTest          # JVM + Robolectric
+./gradlew connectedDebugAndroidTest  # the MP4 export — needs a device or emulator
 ```
 
-All scoped to the caller's UID; a miss returns 404 rather than 403.
+### Running it on an emulator
+
+Worth the setup: clicking through has caught defects the build and the tests could not — a mood
+chip clipped off the screen edge, a renderer painting over the header, a bubble that stayed
+invisible after a scrub.
+
+```bash
+sudo usermod -aG kvm $USER           # once, then log out and back in
+avdmanager create avd -n letters-test -k "system-images;android-34;default;x86_64" -d pixel_5
+emulator -avd letters-test -no-window -gpu swiftshader_indirect -memory 2048
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb exec-out screencap -p > shot.png
+```
+
+Without the `kvm` group it falls back to software emulation and crawls. When driving the UI from
+`adb`, disable the IME first (`adb shell ime disable com.android.inputmethod.latin/.LatinIME`) —
+otherwise the keyboard covers the controls and blind taps land on its keys.
 
 ---
 
 ## Chat Scenes — behavior that must not drift
 
-`SceneEditorPage.tsx` is one route with three modes: **setup → composer → preview**.
+The editor is one route with three steps: **setup → composer → preview**. A scene is not saved
+between them, which is why they are one screen.
 
 ### Key invariant
 The first character added is **"You"** — outgoing, green bubbles, right-aligned, double ticks, no avatar. All others are incoming. Enforced by index: `characters[0]` is always the outgoing participant. Changing this breaks the entire scene model.
 
 ### Sender label and avatar suppression
-One rule drives both. For an incoming message, show the sender name label **and** the avatar only when it is the first message or the previous message came from a different character. Consecutive messages from the same person show neither. Outgoing messages never show either. The avatar slot stays reserved at 28px so bubbles in a run stay aligned.
+One rule drives both. For an incoming message, show the sender name label **and** the avatar only when it is the first message or the previous message came from a different character. Consecutive messages from the same person show neither. Outgoing messages never show either. The avatar slot stays reserved at 28dp so bubbles in a run stay aligned.
 
 ### Other rules
 - Deleting a character also deletes all of their messages.
 - Messages can be deleted but not edited or reordered.
-- Progress bar scrubbing jumps to `round(ratio × messageCount)`, stops playback, and rebuilds the visible list from scratch — no animation, no sound.
+- Progress bar scrubbing jumps to a message boundary, stops playback, and shows that message settled — not at the start of its pop-in, which with playback paused would never finish.
+
+### The denormalised sender fields
+A message carries a snapshot of its sender's name, colour and avatar so playback stays correct
+after a character is edited or deleted. The cost is that renaming a character has to rewrite the
+name on their messages, and removing one has to recolour everyone after them *and* their messages,
+since colour is assigned by list position. That is the right price. Do not "fix" it by joining
+back to `scene_characters`.
 
 ---
 
 ## WhatsApp Visual Spec (must be preserved exactly)
 
+Lives in `ChatTheme.kt` as dp/sp constants. The renderer is handed a density rather than
+reading one, so the same numbers produce the same picture on screen and in an exported frame.
+
 | Element | Value |
 |---|---|
 | Outgoing bubble color | `#DCF8C6` |
 | Incoming bubble color | `#FFFFFF` |
-| Chat background | `#ECE5DD` + 80px SVG cross/diamond tile (`.wa-bg` in `index.css`) |
+| Chat background | `#ECE5DD` + 80dp cross/diamond tile, drawn in `ChatRenderer` |
 | Header | `#075E54`, height 56px |
 | Timestamp text | `#667781`, 11px, right-aligned inside bubble |
 | Double ticks (read) | `✓✓` in `#53BDEB`, 13px, outgoing only |
@@ -145,20 +132,31 @@ Character colors are assigned by position, cycling `index % 8`:
 
 ---
 
+
+---
+
 ## Sound Design
 
-Two synthesized tones via Web Audio API oscillator (`lib/audio.ts`) — no audio files:
+Two synthesized tones, generated as PCM by `ToneSynth` — no audio files:
 
 - **Send** (outgoing): 880 Hz → 1100 Hz, 120 ms, single tone
 - **Receive** (incoming): 1100 Hz → 880 Hz (90 ms), then 880 Hz → 750 Hz (90 ms), offset by 95 ms
 
-Sine wave, gain 0.18 with an exponential ramp to 0.001. `AudioContext` is created lazily on first use (browser autoplay policy).
+Sine wave, gain 0.18 with an exponential ramp to 0.001. The phase is integrated rather than
+computed from an instantaneous frequency; the naive form chirps audibly on a ramp.
+
+They are synthesized rather than bundled because the MP4 encoder needs the samples themselves,
+to write onto an audio track at exact offsets. `TonePlayer` only plays them.
+
+---
+
 
 ---
 
 ## Playback Logic
 
-`playNextMessage()` drives the preview with chained `setTimeout` calls (never `setInterval`). Speed is one of `0.5 | 1 | 1.5 | 2` and divides every duration below.
+`PlaybackTimeline` expresses playback as a function of time. Speed is one of
+`0.5 | 1 | 1.5 | 2` and divides every duration below.
 
 | Step | Duration |
 |---|---|
@@ -169,7 +167,14 @@ Sine wave, gain 0.18 with an exponential ramp to 0.001. `AudioContext` is create
 | Incoming message | instant — bubble pop-in + receive tone |
 | …then pause | `400 / speed` |
 
-Playback ends when the index reaches the message count; pressing play again **restarts from 0**. The timeout handle is cleared on unmount.
+Playback ends when the clock reaches the total; pressing play again **restarts from 0**.
+
+The web app chained `setTimeout`s, which can only run forwards, in real time, once. The same
+durations as absolute timestamps are what let the progress bar scrub exactly and let the MP4
+encoder sample the same playback at a fixed frame rate.
+
+---
+
 
 ---
 
@@ -182,50 +187,46 @@ Playback ends when the index reaches the message count; pressing play again **re
 | Screen ground | `#f5f0e8` |
 | Margin rule | 1px vertical at x=72, `rgba(220,80,60,.25)` |
 | Ruled lines | every 28px, `#e8ddc8` |
-| Body text | Georgia 15.5px, line-height **exactly 28px** |
-| "Dear" line | Georgia 17px, `#3d2b1f` |
-| Subject | Georgia italic 14px, `#6b5040` |
-| Sign-off | Georgia italic 14px, `#9a8060` |
+| Body text | Lora 15.5sp, line height **exactly 28dp** |
+| "Dear" line | Lora 17sp, `#3d2b1f` |
+| Subject | Lora italic 14sp, `#6b5040` |
+| Sign-off | Lora italic 14sp, `#9a8060` |
 
-The 28px body line-height must equal the ruled-line pitch or the text drifts off the lines.
+The body line height must equal the ruled-line pitch or the text drifts off the lines — one
+`LINE_PITCH` constant drives both. The text box also centres each line in its box
+(`LineHeightStyle.Alignment.Center`, no font padding); Compose's default leading distribution
+sits the text high off the rules.
+
+Lora stands in for the web app's Georgia, which Android does not ship.
 
 Moods (single-select, tap again to clear): 🙏 grateful · 🌱 hopeful · ❤️ love · 🌙 nostalgic · ⭐ proud · 💧 sad · 🔥 angry · 🕊️ lonely
 
-**Sealing is a UI convention, not encryption.** The backend returns a sealed letter's full content; only the frontend withholds it. Do not describe it to users as protection.
+**Sealing is a UI convention, not encryption.** The row always holds the full body; only the UI
+withholds it. Do not describe it to users as protection.
+
+---
+
 
 ---
 
 ## Home shell
 
-- **Daily prompt** — fixed list of 20, indexed by `floor(Date.now() / 86_400_000) % 20`. Same for everyone, rotates at UTC midnight, repeats every 20 days.
-- **Search** — client-side over the already-loaded lists. Matches scene names, letter recipients and subjects. Does **not** search letter bodies.
-- **Pen name** — stored in `localStorage` under `letters_pen_name`, defaults to the Firebase display name. Used for the letter sign-off.
+- **Daily prompt** — fixed list of 20, indexed by `floor(epochMillis / 86_400_000) % 20`. Same for everyone, rotates at UTC midnight, repeats every 20 days.
+- **Search** — filters the already-observed lists. Matches scene names, letter recipients and subjects. Does **not** search letter bodies.
+- **Pen name** — stored in DataStore, defaults to "You". Used for the letter sign-off.
 
 ---
 
-## Build & Deploy
+## The Android app — what to know before extending it
 
-```bash
-export VITE_FIREBASE_API_KEY=... VITE_FIREBASE_AUTH_DOMAIN=... VITE_FIREBASE_PROJECT_ID=...
-./build-and-push.sh 1.0.1        # builds + pushes both images to localhost:30500
-# bump image tags in k8s/, then:
-kubectl apply -f k8s/
-```
-
-Never use `latest`. See `DEPLOY.md` for the full checklist and `k8s/SECRETS.md` for the SealedSecret workflow (DB credentials and the Firebase service account).
-
----
-
-## Android Port
-
-Decisions are locked; the full requirements spec is linked at the top of this file. Summary of what changes:
-
-- **No backend, no Firebase, no login.** Room is the source of truth. `user_id` is dropped from the schema.
-- **Avatars become file paths**, not base64 data URLs — the current model duplicates a full-size data URL onto every message from that character.
-- **Message `time` becomes a `LocalTime`**, not a pre-rendered locale string. The web persists the output of `toLocaleTimeString()`, so a scene composed on a 24-hour device renders `14:32` forever.
-- **One Canvas renderer serves both the live preview and the MP4 encoder**, so what plays in the app is what lands in the file. This is why the chat surface is Canvas rather than Compose layout.
-
-Build order: **1** Room data layer ✅ → **2** shell + Letters ✅ → **3** Canvas chat renderer ✅ → **4** scene editor ✅ → **5** MP4 export ✅. **The port is complete.**
+- **No backend, no Firebase, no login.** Room is the source of truth; there is no `user_id`.
+- **Avatars are file paths** under `filesDir/avatars`, downscaled on import. The web app inlined a
+  base64 data URL onto the character *and* onto every message they sent.
+- **Message `time` is a `LocalTime`**, not a pre-rendered string. The web persisted the output of
+  `toLocaleTimeString()`, so a scene composed on a 24-hour device rendered `14:32` forever.
+- **One Canvas renderer serves the preview, the composer and the MP4 encoder**, so what plays in
+  the app is what lands in the file. This is why the chat surface is Canvas rather than Compose
+  layout, and it is the constraint most of the design below follows from.
 
 Phase 2 shipped the home shell (daily prompt, search across both modules, pen name), the letters
 list and the full paper editor — moods, ruled body, time capsule, dirty-state guard. Three things
@@ -237,8 +238,6 @@ about it worth knowing before extending:
 - **The body's line height and the ruled-line pitch are the same 28dp constant**, and the text box
   centres each line in its box (`LineHeightStyle.Alignment.Center`, no font padding) because
   Compose's default leading distribution sits the text high off the rules. Change one, change both.
-- `ScenesScreen` is an honest placeholder; the scenes data layer underneath it is already real, so
-  home's scene count and scene search results work today.
 - **The app declares `enableEdgeToEdge()`** and headers draw their background under the status bar
   while insetting their content. Don't add a screen without `navigationBarsPadding()` on its
   content — `targetSdk` 36 means the system will not letterbox this for us.
@@ -250,8 +249,7 @@ repeat it: `emulator -avd letters-test -no-window -gpu swiftshader_indirect`, th
 `adb install -r` and `adb exec-out screencap -p > shot.png`. The host user must be in the `kvm`
 group or it falls back to software emulation.
 
-Phase 3 built the chat renderer and its playback, reachable today through Scenes → "Play the
-sample scene" (`SampleScene`, which exists only until the editor lands — delete it then).
+Phase 3 built the chat renderer and its playback.
 
 - **`ChatRenderer` draws onto a plain `android.graphics.Canvas`**, given a `PlaybackState` and an
   elapsed time. Nothing about it is Compose-aware, because phase 5 draws it into a Bitmap with no
@@ -284,9 +282,9 @@ preview), as the web app had it, because a scene is not saved between them.
 - The keyboard's action key sends, as Enter did on the web. Without an explicit `ImeAction.Send`
   the field just takes a newline into the middle of a message.
 
-Phase 5 exports the scene to an MP4, from the ▾ MP4 button on the preview screen. 720×1280, 30fps,
-H.264 + AAC, written to the app's external files directory and handed to other apps through a
-FileProvider.
+Phase 5 exports the scene to an MP4, from the ⬇ MP4 button on the preview screen. 720×1280, 30fps,
+H.264 + AAC. The user picks the name and location through the document picker, and the muxer is
+handed that document's descriptor — a provider Uri need not be a path this process can open.
 
 - **Audio sync was the risk, and the timeline is what removed it.** Picture and sound are both
   derived from the same `PlaybackTimeline`: frames are sampled at fixed intervals, and the tones
@@ -297,13 +295,29 @@ FileProvider.
   is an ARGB→YUV420 conversion per frame (`YuvConverter`), paid in a background export.
 - **The muxer needs every track added before it starts**, so the audio is encoded first and its
   packets held in memory (seconds of AAC), then written once the video's format arrives.
+- **The encoder's input buffer is not tightly packed, and the emulator will not tell you that.**
+  Rows are padded to the codec's `KEY_STRIDE` and chroma begins after `KEY_SLICE_HEIGHT` rows —
+  both read from `codec.inputFormat` after `start()`. Assuming `stride == width` shears every row
+  a little further than the last and puts chroma in the wrong plane: a smeared, green picture. The
+  emulator's `c2.android.avc.encoder` reports `stride == width`, so it cannot catch this; a
+  hardware encoder generally pads. Every export logs its codec, colour format and stride under the
+  `SceneExporter` tag — start there if a file ever looks wrong.
+- **Ask the codec that will actually encode** which colour formats it takes. `createEncoderByType`
+  need not return the first AVC encoder in `MediaCodecList`, so a format taken from that list can
+  belong to a different codec. `COLOR_FormatYUV420Flexible` is never written: it promises 4:2:0
+  but not which layout, so bytes written for it are a guess.
 - Export is verified by an **instrumented test** (`app/src/androidTest`) that exports a scene on a
   device and decodes the frames back, asserting the background before the first message and the
   outgoing bubble's green after the last. Run it with `./gradlew connectedDebugAndroidTest`; the
-  JVM tests cannot cover this because it needs a codec.
+  JVM tests cannot cover this because it needs a codec. Note what it still cannot cover: the
+  stride handling above, unless the device it runs on happens to pad.
+
 
 ---
 
 ## Conventions
 
-Inherited from `HomeLab/CLAUDE.md` — constructor injection only, `@Slf4j` for logging, thin controllers, `@ConfigurationProperties` for config, `Optional<T>` handled properly, `// reason:` comments for non-obvious decisions only.
+`// reason:` comments for non-obvious decisions only — not narration. Constructor injection; the
+service locator on `LettersApplication` is deliberate and stays until the graph outgrows it.
+Anything with a rule in it (measurement, timing, colour conversion) is kept separate from anything
+that draws, so it can be tested without a device.
