@@ -71,6 +71,18 @@ class ChatRenderer(
         return height + metrics.listPadVertical
     }
 
+    /**
+     * The index of the message drawn at this point, or null. The whole row is a target, not
+     * just the bubble — a one-word bubble is a small thing to hit.
+     */
+    fun hitTest(x: Float, y: Float, scrollY: Float, visibleCount: Int): Int? {
+        val contentY = y + scrollY
+        return measured.bubbles
+            .take(visibleCount.coerceIn(0, measured.bubbles.size))
+            .indexOfFirst { contentY >= it.rowTop && contentY < it.rowTop + it.rowHeight }
+            .takeIf { it >= 0 }
+    }
+
     fun draw(
         canvas: Canvas,
         state: PlaybackState,

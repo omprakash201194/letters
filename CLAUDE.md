@@ -225,7 +225,7 @@ Decisions are locked; the full requirements spec is linked at the top of this fi
 - **Message `time` becomes a `LocalTime`**, not a pre-rendered locale string. The web persists the output of `toLocaleTimeString()`, so a scene composed on a 24-hour device renders `14:32` forever.
 - **One Canvas renderer serves both the live preview and the MP4 encoder**, so what plays in the app is what lands in the file. This is why the chat surface is Canvas rather than Compose layout.
 
-Build order: **1** Room data layer ✅ → **2** shell + Letters ✅ → **3** Canvas chat renderer ✅ → **4** scene editor over it → **5** MP4 export.
+Build order: **1** Room data layer ✅ → **2** shell + Letters ✅ → **3** Canvas chat renderer ✅ → **4** scene editor ✅ → **5** MP4 export.
 
 Phase 2 shipped the home shell (daily prompt, search across both modules, pen name), the letters
 list and the full paper editor — moods, ruled body, time capsule, dirty-state guard. Three things
@@ -268,6 +268,21 @@ sample scene" (`SampleScene`, which exists only until the editor lands — delet
   This cost an hour; do not remove either.
 - **A shadow layer ignores the paint's alpha.** Anything drawn part-faded has to scale the shadow
   colour itself, or a bubble mid-pop casts a full shadow under nothing.
+
+Phase 4 built the scene list and the editor — one route, three steps (setup → composer →
+preview), as the web app had it, because a scene is not saved between them.
+
+- **The composer draws with the same `ChatRenderer` the player does**, through a shared
+  `ChatCanvas`. It differs only in what drives it: the message list rather than a playback clock.
+  Tapping a bubble hit-tests the measured layout to find which message to delete.
+- **Character colour is assigned by list position**, so removing someone recolours everyone after
+  them — *and* the messages they already sent, since colour and name are snapshotted onto each
+  message. Renaming propagates the same way. This is the price of the denormalisation, and it is
+  the right price; do not "fix" it by joining back to `scene_characters`.
+- **Avatars are files under `filesDir/avatars`**, downscaled on import, referenced by path. The web
+  inlined a base64 data URL onto the character and onto every message they sent.
+- The keyboard's action key sends, as Enter did on the web. Without an explicit `ImeAction.Send`
+  the field just takes a newline into the middle of a message.
 
 MP4 export risk: audio sync is the hardest part — tones must be synthesized to PCM and written to the `MediaMuxer` audio track at exact frame timestamps, which is why the tones stay synthesized rather than becoming bundled WAVs.
 

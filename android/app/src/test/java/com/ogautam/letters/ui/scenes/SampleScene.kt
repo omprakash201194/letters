@@ -5,12 +5,13 @@ import com.ogautam.letters.data.entity.SceneMessageEntity
 import java.time.LocalTime
 
 /**
- * A scene to render before there is any way to compose one. It exists to exercise the
- * renderer, so it deliberately contains the awkward cases: a run of consecutive messages
- * from one person (whose label and avatar must be suppressed after the first), a message
- * long enough to wrap against the 280dp cap, and a one-word reply that must not stretch.
+ * A test fixture: a scene containing the awkward cases. A run of consecutive messages from
+ * one person (whose label and avatar must be suppressed after the first), a message long
+ * enough to wrap against the 280dp cap, a one-word reply that must not stretch, and both
+ * directions so playback exercises both tones.
  *
- * Delete this once the scene editor lands.
+ * It began as the only way to see the renderer before the editor existed. Now that scenes
+ * can be composed, it earns its keep as the scene the tests play.
  */
 object SampleScene {
 

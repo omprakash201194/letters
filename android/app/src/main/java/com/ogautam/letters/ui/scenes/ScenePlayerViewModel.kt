@@ -129,8 +129,11 @@ class ScenePlayerViewModel(
     }
 
     companion object {
-        fun sampleFactory(): ViewModelProvider.Factory = viewModelFactory {
-            initializer { ScenePlayerViewModel(SampleScene.NAME, SampleScene.messages) }
+        fun factory(
+            sceneName: String,
+            messages: List<SceneMessageEntity>,
+        ): ViewModelProvider.Factory = viewModelFactory {
+            initializer { ScenePlayerViewModel(sceneName, messages) }
         }
     }
 }
