@@ -195,17 +195,31 @@ class SceneExporter(
                                 pixels, 0, VideoSpec.WIDTH, 0, 0,
                                 VideoSpec.WIDTH, VideoSpec.HEIGHT,
                             )
-                            YuvConverter.convert(
-                                argb = pixels,
-                                width = VideoSpec.WIDTH,
-                                height = VideoSpec.HEIGHT,
-                                colorFormat = colorFormat,
-                                out = yuv,
-                                rowStride = rowStride,
-                                sliceHeight = sliceHeight,
-                            )
-                            codec.getInputBuffer(inputIndex)!!.apply { clear(); put(yuv) }
-                            codec.queueInputBuffer(inputIndex, 0, yuv.size, presentationUs, 0)
+
+                            // reason: the codec's own Image says where each plane sits and
+                            // how it is interleaved. Ask it when it will answer; only guess
+                            // from the declared format when it will not.
+                            val image = runCatching { codec.getInputImage(inputIndex) }
+                                .getOrNull()
+                            val size = if (image != null) {
+                                YuvConverter.writeInto(
+                                    image, pixels, VideoSpec.WIDTH, VideoSpec.HEIGHT,
+                                )
+                                FRAME_BYTES
+                            } else {
+                                YuvConverter.convert(
+                                    argb = pixels,
+                                    width = VideoSpec.WIDTH,
+                                    height = VideoSpec.HEIGHT,
+                                    colorFormat = colorFormat,
+                                    out = yuv,
+                                    rowStride = rowStride,
+                                    sliceHeight = sliceHeight,
+                                )
+                                codec.getInputBuffer(inputIndex)!!.apply { clear(); put(yuv) }
+                                yuv.size
+                            }
+                            codec.queueInputBuffer(inputIndex, 0, size, presentationUs, 0)
                             progress.onProgress(frame.toFloat() / frameCount)
                         }
                         frame++
@@ -402,6 +416,9 @@ class SceneExporter(
     companion object {
         private const val TAG = "SceneExporter"
         private const val TIMEOUT_US = 10_000L
+
+        /** The picture's own size, independent of whatever padding the buffer carries. */
+        private const val FRAME_BYTES = VideoSpec.WIDTH * VideoSpec.HEIGHT * 3 / 2
         private const val MAX_AUDIO_INPUT = 16_384
 
         fun slug(name: String): String = name.trim()

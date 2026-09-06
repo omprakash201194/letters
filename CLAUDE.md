@@ -304,8 +304,14 @@ handed that document's descriptor — a provider Uri need not be a path this pro
   `SceneExporter` tag — start there if a file ever looks wrong.
 - **Ask the codec that will actually encode** which colour formats it takes. `createEncoderByType`
   need not return the first AVC encoder in `MediaCodecList`, so a format taken from that list can
-  belong to a different codec. `COLOR_FormatYUV420Flexible` is never written: it promises 4:2:0
-  but not which layout, so bytes written for it are a guess.
+  belong to a different codec.
+- **`COLOR_FormatYUV420Flexible` has to be accepted.** Plenty of hardware encoders offer nothing
+  else, and refusing it means refusing to export at all on those devices — the failure looks like a
+  0-byte file, because the throw happens before the muxer starts. Flexible says only that the
+  buffer is 4:2:0, never which layout, so a frame is written through the codec's own
+  `getInputImage()`: its planes carry the `rowStride` and the `pixelStride` that say where the
+  bytes actually go. Prefer that path whenever the codec offers an Image at all; the declared
+  format is the fallback, not the source of truth.
 - Export is verified by an **instrumented test** (`app/src/androidTest`) that exports a scene on a
   device and decodes the frames back, asserting the background before the first message and the
   outgoing bubble's green after the last. Run it with `./gradlew connectedDebugAndroidTest`; the

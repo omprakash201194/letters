@@ -73,13 +73,18 @@ class YuvConverterTest {
         assertEquals(0, out.u(rowStride * height))
     }
 
+    /**
+     * Flexible has to be accepted — many hardware encoders offer nothing else, and refusing
+     * it means refusing to export at all on those devices. It comes last because its layout
+     * is not promised: a frame in that format is written through the codec's own Image,
+     * which says where the planes are, rather than guessed at from the format alone.
+     */
     @Test
-    fun `flexible is not offered, because its layout is not promised`() {
-        assertTrue(
-            YuvConverter.SUPPORTED.none {
-                it == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
-            },
-        )
+    fun `flexible is accepted, but only after the formats whose layout is known`() {
+        val flexible = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
+        assertTrue(YuvConverter.SUPPORTED.contains(flexible))
+        assertEquals(flexible, YuvConverter.SUPPORTED.last())
+        assertEquals(semiPlanar, YuvConverter.SUPPORTED.first())
     }
 
     @Test
