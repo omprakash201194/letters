@@ -225,7 +225,20 @@ Decisions are locked; the full requirements spec is linked at the top of this fi
 - **Message `time` becomes a `LocalTime`**, not a pre-rendered locale string. The web persists the output of `toLocaleTimeString()`, so a scene composed on a 24-hour device renders `14:32` forever.
 - **One Canvas renderer serves both the live preview and the MP4 encoder**, so what plays in the app is what lands in the file. This is why the chat surface is Canvas rather than Compose layout.
 
-Build order: **1** Room data layer → **2** shell + Letters (lower risk, exercises the whole stack) → **3** Canvas chat renderer standalone → **4** scene editor over it → **5** MP4 export.
+Build order: **1** Room data layer ✅ → **2** shell + Letters ✅ → **3** Canvas chat renderer standalone → **4** scene editor over it → **5** MP4 export.
+
+Phase 2 shipped the home shell (daily prompt, search across both modules, pen name), the letters
+list and the full paper editor — moods, ruled body, time capsule, dirty-state guard. Three things
+about it worth knowing before extending:
+
+- **PNG export is deliberately not in it.** Capturing the paper needs a renderer that draws the
+  whole letter independent of the scroll viewport — the same shape of problem as the Canvas chat
+  surface in phase 3, and it should be solved once, there, rather than twice.
+- **The body's line height and the ruled-line pitch are the same 28dp constant**, and the text box
+  centres each line in its box (`LineHeightStyle.Alignment.Center`, no font padding) because
+  Compose's default leading distribution sits the text high off the rules. Change one, change both.
+- `ScenesScreen` is an honest placeholder; the scenes data layer underneath it is already real, so
+  home's scene count and scene search results work today.
 
 MP4 export risk: audio sync is the hardest part — tones must be synthesized to PCM and written to the `MediaMuxer` audio track at exact frame timestamps, which is why the tones stay synthesized rather than becoming bundled WAVs.
 
