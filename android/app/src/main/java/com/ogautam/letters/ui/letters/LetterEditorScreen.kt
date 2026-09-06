@@ -12,7 +12,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -54,6 +58,7 @@ import com.ogautam.letters.ui.common.BackChevron
 import com.ogautam.letters.ui.common.ConfirmDialog
 import com.ogautam.letters.ui.common.DatePickerField
 import com.ogautam.letters.ui.common.HeaderButton
+import com.ogautam.letters.ui.common.MessageDialog
 import com.ogautam.letters.ui.common.ScreenHeader
 import com.ogautam.letters.ui.common.ScreenTitle
 import com.ogautam.letters.ui.common.countWords
@@ -114,6 +119,8 @@ fun LetterEditorScreen(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .imePadding()
                 .padding(horizontal = 16.dp)
                 .padding(top = 20.dp, bottom = 32.dp),
         ) {
@@ -137,12 +144,7 @@ fun LetterEditorScreen(
     }
 
     state.error?.let { message ->
-        ConfirmDialog(
-            title = message,
-            confirmLabel = "OK",
-            onConfirm = viewModel::dismissError,
-            onDismiss = viewModel::dismissError,
-        )
+        MessageDialog(title = message, onDismiss = viewModel::dismissError)
     }
 
     if (confirmLeave) {
@@ -161,23 +163,24 @@ fun LetterEditorScreen(
 private fun Paper(state: LetterEditorUiState, viewModel: LetterEditorViewModel) {
     val words = countWords(state.content)
     PaperSheet(minHeight = 500.dp) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DatePickerField(
-                date = state.letterDate,
-                onDateChange = viewModel::onDateChange,
-                textStyle = TextStyle(
-                    fontFamily = LoraFamily,
-                    fontSize = 13.sp,
-                    color = LettersPalette.Muted,
-                ),
-            )
-            MoodRow(selected = state.mood, onToggle = viewModel::onMoodToggle)
-        }
-        Spacer(Modifier.height(24.dp))
+        // reason: the date and eight moods together overflow a phone's width — the moods take
+        // their own line rather than being clipped or wrapping one lone emoji onto a second row
+        DatePickerField(
+            date = state.letterDate,
+            onDateChange = viewModel::onDateChange,
+            textStyle = TextStyle(
+                fontFamily = LoraFamily,
+                fontSize = 13.sp,
+                color = LettersPalette.Muted,
+            ),
+        )
+        Spacer(Modifier.height(8.dp))
+        MoodRow(
+            selected = state.mood,
+            onToggle = viewModel::onMoodToggle,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(20.dp))
 
         Row(verticalAlignment = Alignment.Bottom) {
             Text("Dear", fontFamily = LoraFamily, fontSize = 17.sp, color = LettersPalette.BrownDeep)
@@ -396,9 +399,19 @@ private fun PaperField(
  * All eight moods, always visible. With none chosen every emoji sits at half opacity; once
  * one is chosen it goes full and the rest fade back, so the choice reads at a glance.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MoodRow(selected: String?, onToggle: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+private fun MoodRow(
+    selected: String?,
+    onToggle: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // reason: eight emoji plus the date do not fit one line on a phone — the last one was
+    // being clipped off the edge. They wrap instead, as they did on the web.
+    FlowRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
+    ) {
         Mood.entries.forEach { mood ->
             val isSelected = selected == mood.slug
             val alpha = when {

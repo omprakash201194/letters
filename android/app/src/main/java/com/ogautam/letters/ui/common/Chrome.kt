@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -32,8 +35,9 @@ fun ScreenHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
             .background(background)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .height(56.dp)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -82,6 +86,20 @@ fun ScreenTitle(text: String, color: Color = Color.White, size: Int = 17) {
     )
 }
 
+/** A statement the user can only acknowledge — no second button, nothing to cancel. */
+@Composable
+fun MessageDialog(title: String, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontFamily = LoraFamily, color = LettersPalette.BrownDeep) },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("OK", color = LettersPalette.Brown) }
+        },
+        containerColor = LettersPalette.Paper,
+    )
+}
+
+/** The header background reaches under the status bar; only its content is inset. */
 @Composable
 fun ConfirmDialog(
     title: String,

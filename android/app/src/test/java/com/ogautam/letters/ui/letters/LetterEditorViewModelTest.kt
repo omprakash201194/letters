@@ -64,7 +64,19 @@ class LetterEditorViewModelTest : DbTest() {
         assertTrue(state.isNew)
         assertFalse(state.isDirty)
         assertEquals(today, state.letterDate)
-        assertEquals(UserPreferences.DEFAULT_PEN_NAME, state.penName)
+    }
+
+    /**
+     * The pen name is written explicitly rather than asserted as the default: Robolectric
+     * shares one DataStore file across the test classes in a JVM fork, so whatever another
+     * test last stored is still there when this one runs.
+     */
+    @Test
+    fun `the letter is signed with the stored pen name`() = runTest {
+        prefs().setPenName("Om")
+
+        val state = viewModel(repo()).awaitLoaded()
+        assertEquals("Om", state.penName)
     }
 
     @Test

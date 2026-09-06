@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
@@ -31,7 +32,8 @@ fun ScenesScreen(onBack: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(LettersPalette.HomeGround),
+            .background(LettersPalette.HomeGround)
+            .navigationBarsPadding(),
     ) {
         ScreenHeader(background = LettersPalette.Teal) {
             Row(verticalAlignment = Alignment.CenterVertically) {

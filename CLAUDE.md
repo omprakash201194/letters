@@ -239,6 +239,16 @@ about it worth knowing before extending:
   Compose's default leading distribution sits the text high off the rules. Change one, change both.
 - `ScenesScreen` is an honest placeholder; the scenes data layer underneath it is already real, so
   home's scene count and scene search results work today.
+- **The app declares `enableEdgeToEdge()`** and headers draw their background under the status bar
+  while insetting their content. Don't add a screen without `navigationBarsPadding()` on its
+  content — `targetSdk` 36 means the system will not letterbox this for us.
+
+Verified on an emulator (API 34, x86_64, headless + `adb` screenshots), which found three real
+defects that the build and the tests could not: the eighth mood was clipped off the right edge,
+the blank-recipient message offered a pointless "Cancel", and nothing handled window insets. To
+repeat it: `emulator -avd letters-test -no-window -gpu swiftshader_indirect`, then
+`adb install -r` and `adb exec-out screencap -p > shot.png`. The host user must be in the `kvm`
+group or it falls back to software emulation.
 
 MP4 export risk: audio sync is the hardest part — tones must be synthesized to PCM and written to the `MediaMuxer` audio track at exact frame timestamps, which is why the tones stay synthesized rather than becoming bundled WAVs.
 
