@@ -96,6 +96,12 @@ video still matches it. The open scene in the editor does follow a library edit,
 still writing it. Deleting a character removes them from casts; the scenes they were in keep
 every word they said.
 
+**The wizard dedupes by name; the library does not.** Typing a name into the new-scene wizard is
+a way of reaching someone you already have, so a name that already belongs to somebody selects
+that person — ignoring case and surrounding space — rather than making a second of them, and says
+so. Two genuinely different people sharing a name is a real thing, but it is a thing you say
+deliberately on the library screen, not by accident in a wizard.
+
 Stories are folders. Deleting one keeps its scenes; they move back out into the ungrouped list.
 `scenes.storyId` deliberately carries **no** foreign key — adding one to an existing table means
 rebuilding it, and SQLite rewrites the references of every table pointing at it while you do.

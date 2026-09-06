@@ -139,9 +139,9 @@ fun NewSceneScreen(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "The first person you pick speaks as you — green, on the right.",
+                    state.notice ?: "The first person you pick speaks as you — green, on the right.",
                     fontSize = 12.sp,
-                    color = LettersPalette.Meta,
+                    color = if (state.notice != null) LettersPalette.Teal else LettersPalette.Meta,
                 )
                 Spacer(Modifier.height(8.dp))
             }

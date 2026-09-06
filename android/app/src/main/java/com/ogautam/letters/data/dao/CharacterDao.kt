@@ -23,6 +23,10 @@ interface CharacterDao {
     @Query("SELECT * FROM characters WHERE id IN (:ids)")
     suspend fun getAllById(ids: List<String>): List<CharacterEntity>
 
+    /** Case- and whitespace-insensitive, which is how a person types the same name twice. */
+    @Query("SELECT * FROM characters WHERE TRIM(name) = TRIM(:name) COLLATE NOCASE LIMIT 1")
+    suspend fun findByName(name: String): CharacterEntity?
+
     @Query("SELECT * FROM characters WHERE isSelf = 1 LIMIT 1")
     suspend fun getSelf(): CharacterEntity?
 

@@ -29,6 +29,16 @@ class CharacterRepository(
 
     suspend fun getSelf(): CharacterEntity? = dao.getSelf()
 
+    /**
+     * An existing character with this name, ignoring case and surrounding space.
+     *
+     * Used where typing a name is a way of *reaching* someone rather than inventing them —
+     * the new-scene wizard. The library itself does not dedupe: two people really can be
+     * called Meera, and that is the screen where you would say so.
+     */
+    suspend fun findByName(name: String): CharacterEntity? =
+        name.trim().takeIf(String::isNotEmpty)?.let { dao.findByName(it) }
+
     /** The people already appearing in a story, so a new scene can offer them first. */
     suspend fun forStory(storyId: String?): List<CharacterEntity> =
         storyId?.let { dao.getForStory(it) }.orEmpty()
