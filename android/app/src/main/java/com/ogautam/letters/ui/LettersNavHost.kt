@@ -8,12 +8,14 @@ import androidx.navigation.compose.rememberNavController
 import com.ogautam.letters.ui.home.HomeScreen
 import com.ogautam.letters.ui.letters.LetterEditorScreen
 import com.ogautam.letters.ui.letters.LettersScreen
+import com.ogautam.letters.ui.scenes.ScenePlayerScreen
 import com.ogautam.letters.ui.scenes.ScenesScreen
 
 object Routes {
     const val HOME = "home"
     const val LETTERS = "letters"
     const val SCENES = "scenes"
+    const val SCENE_SAMPLE = "scenes/sample"
     const val NEW_LETTER = "letter/new"
     const val EDIT_LETTER = "letter/edit/{letterId}"
 
@@ -43,7 +45,14 @@ fun LettersNavHost(navController: NavHostController = rememberNavController()) {
         }
 
         composable(Routes.SCENES) {
-            ScenesScreen(onBack = navController::popBackStack)
+            ScenesScreen(
+                onBack = navController::popBackStack,
+                onOpenSample = { navController.navigate(Routes.SCENE_SAMPLE) },
+            )
+        }
+
+        composable(Routes.SCENE_SAMPLE) {
+            ScenePlayerScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.NEW_LETTER) {

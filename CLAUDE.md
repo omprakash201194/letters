@@ -225,7 +225,7 @@ Decisions are locked; the full requirements spec is linked at the top of this fi
 - **Message `time` becomes a `LocalTime`**, not a pre-rendered locale string. The web persists the output of `toLocaleTimeString()`, so a scene composed on a 24-hour device renders `14:32` forever.
 - **One Canvas renderer serves both the live preview and the MP4 encoder**, so what plays in the app is what lands in the file. This is why the chat surface is Canvas rather than Compose layout.
 
-Build order: **1** Room data layer ✅ → **2** shell + Letters ✅ → **3** Canvas chat renderer standalone → **4** scene editor over it → **5** MP4 export.
+Build order: **1** Room data layer ✅ → **2** shell + Letters ✅ → **3** Canvas chat renderer ✅ → **4** scene editor over it → **5** MP4 export.
 
 Phase 2 shipped the home shell (daily prompt, search across both modules, pen name), the letters
 list and the full paper editor — moods, ruled body, time capsule, dirty-state guard. Three things
@@ -249,6 +249,25 @@ the blank-recipient message offered a pointless "Cancel", and nothing handled wi
 repeat it: `emulator -avd letters-test -no-window -gpu swiftshader_indirect`, then
 `adb install -r` and `adb exec-out screencap -p > shot.png`. The host user must be in the `kvm`
 group or it falls back to software emulation.
+
+Phase 3 built the chat renderer and its playback, reachable today through Scenes → "Play the
+sample scene" (`SampleScene`, which exists only until the editor lands — delete it then).
+
+- **`ChatRenderer` draws onto a plain `android.graphics.Canvas`**, given a `PlaybackState` and an
+  elapsed time. Nothing about it is Compose-aware, because phase 5 draws it into a Bitmap with no
+  composition running. `ChatLayout` measures separately from drawing, so the rules worth testing —
+  sender-label suppression, the reserved avatar column, the 280dp cap — are testable without one.
+- **Playback is a timeline, not a chain of timeouts.** The web app's `setTimeout` chain can only
+  run forwards, in real time, once. `PlaybackTimeline.stateAt(t)` gives the same durations as a
+  function of time, which is what lets the progress bar scrub and what phase 5 will sample at a
+  fixed frame rate. The durations themselves are unchanged and pinned by tests.
+- **`ToneSynth` produces PCM**, and `TonePlayer` merely plays it. Same reason: the muxer needs the
+  samples. The view model depends on the `SceneTones` interface, not on `AudioTrack`.
+- **A Compose draw scope is not clipped to its node.** The renderer fills its surface, so the
+  Canvas needs `clipToBounds()` and an explicit height — without both it paints over the header.
+  This cost an hour; do not remove either.
+- **A shadow layer ignores the paint's alpha.** Anything drawn part-faded has to scale the shadow
+  colour itself, or a bubble mid-pop casts a full shadow under nothing.
 
 MP4 export risk: audio sync is the hardest part — tones must be synthesized to PCM and written to the `MediaMuxer` audio track at exact frame timestamps, which is why the tones stay synthesized rather than becoming bundled WAVs.
 

@@ -1,6 +1,10 @@
 package com.ogautam.letters.ui.scenes
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,11 +28,12 @@ import com.ogautam.letters.ui.common.ScreenTitle
 import com.ogautam.letters.ui.theme.LettersPalette
 
 /**
- * Placeholder. The scenes data layer is already in place; the Canvas chat renderer it needs
- * is the next phase, and a half-built editor here would be worse than an honest gap.
+ * Placeholder for the scene list. The data layer and the chat renderer both exist; what is
+ * missing is the editor that composes a scene, so the only thing to open here is the sample
+ * the renderer was built against.
  */
 @Composable
-fun ScenesScreen(onBack: () -> Unit) {
+fun ScenesScreen(onBack: () -> Unit, onOpenSample: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
@@ -54,12 +59,21 @@ fun ScenesScreen(onBack: () -> Unit) {
                 color = LettersPalette.GreenInk,
             )
             Text(
-                "Scene building arrives with the chat renderer.",
+                "Composing your own scene arrives with the editor.",
                 modifier = Modifier.fillMaxWidth(),
                 fontSize = 14.sp,
                 color = LettersPalette.GreenMuted,
                 textAlign = TextAlign.Center,
             )
+            Spacer(Modifier.height(8.dp))
+            Box(
+                Modifier
+                    .background(LettersPalette.Teal, RoundedCornerShape(10.dp))
+                    .clickable(onClick = onOpenSample)
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+            ) {
+                Text("▶  Play the sample scene", fontSize = 14.sp, color = Color.White)
+            }
         }
     }
 }
