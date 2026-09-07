@@ -126,6 +126,19 @@ you.
 - **The input bar is drawn on every frame of playback and export**, not only while something is
   being written into it — a bar that appeared for one moment would read as a mistake. It is off in
   the composer, which has a real one.
+- **The keyboard, unlike the bar, comes and goes.** It is the reason your unsent words are on the
+  screen at all, so it slides up to be in place as the first letter lands and leaves once the last
+  one is gone, with the key under the finger drawn pressed — the letter that just appeared, or
+  backspace while the words are going. Only *your* unsent words raise it: you never see someone
+  else's keyboard, any more than you see their sentence. It takes its room **from** the transcript
+  rather than lying over it, which is why `transcriptHeight` needs the slide fraction and why the
+  surface re-pins to the bottom as the keyboard opens; getting that wrong hides the newest bubble
+  behind the keys in the exported video, where nobody can scroll, so both a frame test and the
+  export test pin it. It is drawn full-height from wherever its top has reached and clipped to the
+  screen, so it rises from underneath rather than growing in place. Off in the composer, which has
+  a real one. `KeyboardLayout` measures it and answers which key a character was typed on;
+  `ChatRenderer` only draws. Shift, backspace and return are drawn as paths — ⇧ ⌫ ⏎ are not in
+  every system font, and a missing-glyph box in an exported video cannot be explained away.
 - **Unsent messages are excluded from the laid-out transcript during playback.** A playback state
   counts only the bubbles that exist; measuring the unsent ones as well shifted every later bubble
   up by one and hid the last of them entirely. In the composer they *are* drawn — faint, dashed —

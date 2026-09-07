@@ -161,6 +161,43 @@ class SceneExportTest {
         return null
     }
 
+    /**
+     * The keyboard is drawn into the exported frames, not only onto the screen. It takes its
+     * room from the transcript, so getting this wrong in the export alone would put the last
+     * bubble behind the keys in the one place nobody can scroll.
+     */
+    @Test
+    fun theKeyboardIsInTheFramesWhereTheUnsentWordsAre() {
+        val unsentMessages = messages +
+            message("i never stopped thinking about you", outgoing = true, 2).copy(unsent = true)
+        val file = SceneExporter(context)
+            .export("Unsent export test", unsentMessages, PlaySpeed.DOUBLE)
+            .also { produced += it }
+        val timeline = PlaybackTimeline(unsentMessages, PlaySpeed.DOUBLE)
+        val unsent = timeline.steps.last()
+
+        MediaMetadataRetriever().use { retriever ->
+            retriever.setDataSource(file.absolutePath)
+
+            fun frameAt(timeMs: Long): Bitmap = requireNotNull(
+                retriever.getFrameAtTime(timeMs * 1_000L, MediaMetadataRetriever.OPTION_CLOSEST),
+            ) { "no frame at ${timeMs}ms" }
+
+            // While the words are being written, the bottom of the frame is keyboard.
+            assertLooksLike(
+                expected = ChatTheme.KEYBOARD_GROUND,
+                actual = frameAt(unsent.composeFromMs!! + 100).colorAt(0.002f, 0.998f),
+                what = "the keyboard while the unsent words are being written",
+            )
+            // Before them, it is the input bar, which is always there.
+            assertLooksLike(
+                expected = ChatTheme.INPUT_BAR_GROUND,
+                actual = frameAt(50).colorAt(0.002f, 0.998f),
+                what = "the input bar before anything is written",
+            )
+        }
+    }
+
     @Test
     fun aSceneWithNoMessagesIsRefusedRatherThanWrittenEmpty() {
         val error = runCatching {

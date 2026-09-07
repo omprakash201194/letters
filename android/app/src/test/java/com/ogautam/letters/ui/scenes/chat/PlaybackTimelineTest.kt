@@ -2,6 +2,7 @@ package com.ogautam.letters.ui.scenes.chat
 
 import com.ogautam.letters.data.entity.SceneMessageEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -188,6 +189,65 @@ class PlaybackTimelineTest {
         // Gone, and nothing left behind.
         assertNull(timeline.stateAt(step.bubbleAtMs + 10).composing)
         assertEquals(0, timeline.stateAt(step.bubbleAtMs + 10).visibleCount)
+    }
+
+    @Test
+    fun `the keyboard is up while your own unsent words are, and only then`() {
+        val messages = listOf(message("i miss you", outgoing = true, 0).copy(unsent = true))
+        val timeline = PlaybackTimeline(messages, PlaySpeed.NORMAL)
+        val step = timeline.steps.single()
+        val slide = ChatTheme.KEYBOARD_SLIDE_MS
+
+        // Down before it starts to rise, and in place by the time the first letter lands.
+        assertEquals(0f, timeline.keyboardFractionAt(step.composeFromMs!! - slide - 1), 0.001f)
+        assertEquals(1f, timeline.keyboardFractionAt(step.composeFromMs!!), 0.001f)
+        // Part-way up in between.
+        val rising = timeline.keyboardFractionAt(step.composeFromMs!! - slide / 2)
+        assertTrue("was $rising", rising > 0f && rising < 1f)
+        // Up for the whole of the writing, the holding and the taking back.
+        for (t in step.composeFromMs!!..step.bubbleAtMs step 20) {
+            assertEquals("at ${t}ms", 1f, timeline.keyboardFractionAt(t), 0.001f)
+        }
+        // Part-way down once the words are gone, and away by the end of the slide.
+        val falling = timeline.keyboardFractionAt(step.bubbleAtMs + slide / 2)
+        assertTrue("was $falling", falling > 0f && falling < 1f)
+        assertEquals(0f, timeline.keyboardFractionAt(step.bubbleAtMs + slide), 0.001f)
+    }
+
+    @Test
+    fun `a plain scene never raises the keyboard`() {
+        val timeline = PlaybackTimeline(
+            listOf(message("hi", outgoing = true, 0), message("hello", outgoing = false, 1)),
+            PlaySpeed.NORMAL,
+        )
+
+        for (t in 0..timeline.totalMs step 25) {
+            assertEquals("at ${t}ms", 0f, timeline.stateAt(t).keyboardFraction, 0.001f)
+        }
+    }
+
+    /** You never see someone else's keyboard, any more than you see their sentence. */
+    @Test
+    fun `someone else's unsent message does not raise your keyboard`() {
+        val messages = listOf(message("i almost said it", outgoing = false, 0).copy(unsent = true))
+        val timeline = PlaybackTimeline(messages, PlaySpeed.NORMAL)
+
+        for (t in 0..timeline.totalMs step 25) {
+            assertEquals("at ${t}ms", 0f, timeline.keyboardFractionAt(t), 0.001f)
+        }
+    }
+
+    @Test
+    fun `backspace is what is held while the words are being taken back`() {
+        val text = "i miss you"
+        val messages = listOf(message(text, outgoing = true, 0).copy(unsent = true))
+        val timeline = PlaybackTimeline(messages, PlaySpeed.NORMAL)
+        val step = timeline.steps.single()
+
+        assertFalse(timeline.stateAt(step.eraseFromMs!! - 10).composeErasing)
+        assertTrue(timeline.stateAt((step.eraseFromMs!! + step.bubbleAtMs) / 2).composeErasing)
+        // Nothing is being held once the message is over.
+        assertFalse(timeline.stateAt(step.bubbleAtMs + 10).composeErasing)
     }
 
     /**

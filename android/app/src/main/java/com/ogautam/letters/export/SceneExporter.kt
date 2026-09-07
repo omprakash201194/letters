@@ -273,8 +273,10 @@ class SceneExporter(
         val timeMs = frame * 1_000L / VideoSpec.FPS
         val state = timeline.stateAt(timeMs)
         // The exported frame scrolls exactly as the preview does — pinned to the bottom of
-        // the transcript, which is the frame less the input bar.
-        val transcriptHeight = renderer.transcriptHeight(VideoSpec.HEIGHT.toFloat())
+        // the transcript, which is the frame less the input bar and less whatever of the
+        // keyboard is up at this instant.
+        val transcriptHeight =
+            renderer.transcriptHeight(VideoSpec.HEIGHT.toFloat(), state.keyboardFraction)
         val scrollY = max(0f, renderer.contentHeight(state) - transcriptHeight)
         renderer.draw(
             canvas = canvas,

@@ -59,15 +59,20 @@ fun ChatCanvas(
     renderer?.setMessages(messages)
 
     val contentHeight = renderer?.contentHeight(playback) ?: 0f
-    // The input bar sits below the transcript, so it is not room the transcript can scroll into.
-    val transcriptHeight = renderer?.transcriptHeight(viewport.height.toFloat()) ?: 0f
+    // The input bar sits below the transcript, so it is not room the transcript can scroll
+    // into — nor is the keyboard, while it is up.
+    val transcriptHeight =
+        renderer?.transcriptHeight(viewport.height.toFloat(), playback.keyboardFraction) ?: 0f
     val maxScroll = max(0f, contentHeight - transcriptHeight)
 
     var scrollY by remember { mutableFloatStateOf(0f) }
 
     // Pin to the bottom whenever the transcript grows, which is what the web app's
     // scroll-to-bottom-on-update amounted to. Scrolling back up in between still works.
-    LaunchedEffect(contentHeight, viewport) { scrollY = maxScroll }
+    // reason: the transcript's own height is a key too — the keyboard sliding up shortens
+    // it without the content changing, and a real chat scrolls rather than hiding its last
+    // messages behind the keys.
+    LaunchedEffect(contentHeight, transcriptHeight, viewport) { scrollY = maxScroll }
 
     val scroll = rememberScrollableState { delta ->
         val next = (scrollY - delta).coerceIn(0f, maxScroll)

@@ -1,6 +1,7 @@
 package com.ogautam.letters.ui.scenes.chat
 
 import com.ogautam.letters.data.entity.SceneMessageEntity
+import kotlin.math.max
 
 /** The four speeds from the web app. Every duration below is divided by this. */
 enum class PlaySpeed(val factor: Float, val label: String) {
@@ -59,6 +60,16 @@ data class PlaybackState(
      * back. Never another character's: a chat does not show you what they are typing.
      */
     val composing: String? = null,
+    /**
+     * Whether those words are being taken back rather than written — which key is held
+     * down, in other words.
+     */
+    val composeErasing: Boolean = false,
+    /**
+     * How far the on-screen keyboard has slid up, 0 to 1. It is up only while your own
+     * unsent words are on the screen, because it is the reason they are there.
+     */
+    val keyboardFraction: Float = 0f,
 )
 
 /**
@@ -132,6 +143,7 @@ class PlaybackTimeline(
         var revealedChars: Int? = null
         var typingIndex: Int? = null
         var composing: String? = null
+        var erasing = false
 
         for (step in steps) {
             val message = messages[step.index]
@@ -144,6 +156,7 @@ class PlaybackTimeline(
                 }
                 composing = composingTextAt(step, message, timeMs)
                 if (composing != null && !message.outgoing) composing = null
+                erasing = composing != null && step.eraseFromMs != null && timeMs >= step.eraseFromMs
                 if (step.typingFromMs != null && step.typingFromMs <= timeMs) {
                     typingIndex = step.index
                 }
@@ -172,7 +185,41 @@ class PlaybackTimeline(
             msSinceLastBubble = if (visible == 0) 0L else timeMs - lastBubbleAt,
             revealedChars = revealedChars,
             composing = composing,
+            composeErasing = erasing,
+            keyboardFraction = keyboardFractionAt(timeMs),
         )
+    }
+
+    /**
+     * How far the keyboard has slid up at this instant.
+     *
+     * It rises so as to be in place just before the first letter appears and falls once the
+     * last one is gone: the keyboard is why the words are there, so it arrives with them and
+     * leaves with them. Only your own unsent words raise it — you never see someone else's
+     * keyboard, any more than you see their sentence.
+     *
+     * Computed over the whole step list rather than inside [stateAt]'s loop, which walks
+     * past a finished unsent message: the keyboard is still on its way down then.
+     */
+    fun keyboardFractionAt(timeMs: Long): Float {
+        val slide = scaled(ChatTheme.KEYBOARD_SLIDE_MS).coerceAtLeast(1L)
+        var fraction = 0f
+        for (step in steps) {
+            if (!step.unsent || !messages[step.index].outgoing) continue
+            val composeFrom = step.composeFromMs ?: continue
+            val upFrom = composeFrom - slide
+            val downTo = step.bubbleAtMs + slide
+            if (timeMs < upFrom || timeMs >= downTo) continue
+            val here = when {
+                timeMs < composeFrom -> (timeMs - upFrom).toFloat() / slide
+                timeMs < step.bubbleAtMs -> 1f
+                else -> 1f - (timeMs - step.bubbleAtMs).toFloat() / slide
+            }
+            // reason: two unsent messages close together keep it up rather than flickering
+            // it down and straight back.
+            fraction = max(fraction, here)
+        }
+        return fraction.coerceIn(0f, 1f)
     }
 
     // ── phases ─────────────────────────────────────────────────────────────

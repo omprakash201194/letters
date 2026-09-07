@@ -43,6 +43,7 @@ class ChatRenderer(
 
     private val metrics = ChatMetrics(density)
     private val layout = ChatLayout(widthPx, density, metrics)
+    private val keyboard = KeyboardLayout(widthPx, metrics)
 
     /** Every message, including unsent ones — a typing indicator may belong to one. */
     private var messages: List<SceneMessageEntity> = emptyList()
@@ -74,6 +75,12 @@ class ChatRenderer(
     private val inputTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = metrics.inputTextSize
     }
+    private val keyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val keyTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        textSize = metrics.keyTextSize
+        color = ChatTheme.KEY_TEXT
+    }
     private val rect = RectF()
     private val radii = FloatArray(8)
 
@@ -89,9 +96,17 @@ class ChatRenderer(
     }
 
     /** How tall the transcript is at this instant, typing indicator included. */
-    /** The transcript's own height: the surface, less the input bar sitting under it. */
-    fun transcriptHeight(viewportHeight: Float): Float =
-        (viewportHeight - if (showInputBar) metrics.inputBarHeight else 0f).coerceAtLeast(0f)
+    /**
+     * The transcript's own height: the surface, less the input bar sitting under it and less
+     * however much of the keyboard is up. The transcript really does give up that room — a
+     * chat scrolls its last messages out of the way when the keyboard opens, and this scene
+     * should too.
+     */
+    fun transcriptHeight(viewportHeight: Float, keyboardFraction: Float = 0f): Float {
+        if (!showInputBar) return viewportHeight.coerceAtLeast(0f)
+        val below = metrics.inputBarHeight + keyboard.height * keyboardFraction.coerceIn(0f, 1f)
+        return (viewportHeight - below).coerceAtLeast(0f)
+    }
 
     fun contentHeight(state: PlaybackState): Float {
         val bubbles = measured.bubbles
@@ -125,7 +140,7 @@ class ChatRenderer(
         scrollY: Float,
         viewportHeight: Float,
     ) {
-        val transcriptHeight = transcriptHeight(viewportHeight)
+        val transcriptHeight = transcriptHeight(viewportHeight, state.keyboardFraction)
         drawBackground(canvas, transcriptHeight)
 
         canvas.save()
@@ -162,7 +177,17 @@ class ChatRenderer(
         }
 
         canvas.restore()
-        if (showInputBar) drawInputBar(canvas, state.composing, transcriptHeight, elapsedMs)
+        if (showInputBar) {
+            drawInputBar(canvas, state.composing, transcriptHeight, elapsedMs)
+            if (state.keyboardFraction > 0f) {
+                drawKeyboard(
+                    canvas = canvas,
+                    top = transcriptHeight + metrics.inputBarHeight,
+                    viewportHeight = viewportHeight,
+                    state = state,
+                )
+            }
+        }
     }
 
     // ── surface ────────────────────────────────────────────────────────────
@@ -458,6 +483,124 @@ class ChatRenderer(
         canvas.drawPath(bubblePath, inputPaint)
     }
 
+    // ── keyboard ───────────────────────────────────────────────────────────
+
+    /**
+     * The keyboard, drawn at full height from wherever its top has slid to, so the part of
+     * it that has not arrived yet is simply below the screen.
+     */
+    private fun drawKeyboard(
+        canvas: Canvas,
+        top: Float,
+        viewportHeight: Float,
+        state: PlaybackState,
+    ) {
+        canvas.save()
+        // reason: a Compose draw scope is not clipped to its node, so without this the rows
+        // still below the bottom of the screen paint over whatever sits under the canvas
+        canvas.clipRect(0f, top, widthPx, viewportHeight)
+        canvas.translate(0f, top)
+
+        keyPaint.color = ChatTheme.KEYBOARD_GROUND
+        canvas.drawRect(0f, 0f, widthPx, keyboard.height, keyPaint)
+
+        val pressed = pressedKey(state)
+        for (key in keyboard.keys) {
+            rect.set(key.left, key.top, key.right, key.bottom)
+            keyPaint.color = when {
+                key === pressed -> ChatTheme.KEY_FACE_PRESSED
+                key.kind == KeyKind.RETURN -> ChatTheme.KEY_RETURN
+                key.kind == KeyKind.SHIFT ||
+                    key.kind == KeyKind.BACKSPACE ||
+                    key.kind == KeyKind.SYMBOLS -> ChatTheme.KEY_FACE_MUTED
+                else -> ChatTheme.KEY_FACE
+            }
+            canvas.drawRoundRect(rect, metrics.keyRadius, metrics.keyRadius, keyPaint)
+            drawKeyFace(canvas, key)
+        }
+
+        canvas.restore()
+    }
+
+    /**
+     * The key under the finger: the letter that has just appeared, or backspace while the
+     * words are going. Nothing while the bar is empty — a key held down with nothing
+     * happening reads as a frozen frame rather than as typing.
+     */
+    private fun pressedKey(state: PlaybackState): KeyLayout? {
+        if (state.composeErasing) return keyboard.backspace
+        val last = state.composing?.lastOrNull() ?: return null
+        return keyboard.keyFor(last)
+    }
+
+    private fun drawKeyFace(canvas: Canvas, key: KeyLayout) {
+        when (key.kind) {
+            KeyKind.SPACE -> Unit
+            KeyKind.SHIFT -> drawShiftGlyph(canvas, key)
+            KeyKind.BACKSPACE -> drawBackspaceGlyph(canvas, key)
+            KeyKind.RETURN -> drawReturnGlyph(canvas, key)
+            else -> {
+                keyTextPaint.textSize =
+                    if (key.kind == KeyKind.SYMBOLS) metrics.keyTextSize * 0.72f
+                    else metrics.keyTextSize
+                val fm = keyTextPaint.fontMetrics
+                canvas.drawText(
+                    key.label,
+                    key.centerX,
+                    key.centerY - (fm.ascent + fm.descent) / 2f,
+                    keyTextPaint,
+                )
+            }
+        }
+    }
+
+    // The three glyphs are drawn rather than typed. ⇧ ⌫ ⏎ are not in every system font, and
+    // a missing-glyph box in an exported video is not something the viewer can be told about.
+
+    private fun drawShiftGlyph(canvas: Canvas, key: KeyLayout) {
+        val arm = key.height * GLYPH_ARM
+        bubblePath.reset()
+        bubblePath.moveTo(key.centerX, key.centerY - arm * 1.3f)
+        bubblePath.lineTo(key.centerX + arm, key.centerY)
+        bubblePath.lineTo(key.centerX + arm * 0.42f, key.centerY)
+        bubblePath.lineTo(key.centerX + arm * 0.42f, key.centerY + arm)
+        bubblePath.lineTo(key.centerX - arm * 0.42f, key.centerY + arm)
+        bubblePath.lineTo(key.centerX - arm * 0.42f, key.centerY)
+        bubblePath.lineTo(key.centerX - arm, key.centerY)
+        bubblePath.close()
+        keyPaint.color = ChatTheme.KEY_GLYPH
+        canvas.drawPath(bubblePath, keyPaint)
+    }
+
+    private fun drawBackspaceGlyph(canvas: Canvas, key: KeyLayout) {
+        val arm = key.height * GLYPH_ARM
+        bubblePath.reset()
+        bubblePath.moveTo(key.centerX - arm * 1.5f, key.centerY)
+        bubblePath.lineTo(key.centerX - arm * 0.4f, key.centerY - arm * 0.85f)
+        bubblePath.lineTo(key.centerX + arm * 1.4f, key.centerY - arm * 0.85f)
+        bubblePath.lineTo(key.centerX + arm * 1.4f, key.centerY + arm * 0.85f)
+        bubblePath.lineTo(key.centerX - arm * 0.4f, key.centerY + arm * 0.85f)
+        bubblePath.close()
+        keyPaint.color = ChatTheme.KEY_GLYPH
+        canvas.drawPath(bubblePath, keyPaint)
+    }
+
+    private fun drawReturnGlyph(canvas: Canvas, key: KeyLayout) {
+        val arm = key.height * GLYPH_ARM
+        keyPaint.color = android.graphics.Color.WHITE
+        keyPaint.style = Paint.Style.STROKE
+        keyPaint.strokeWidth = metrics.caretWidth * 1.4f
+        canvas.drawLine(key.centerX + arm, key.centerY - arm, key.centerX + arm, key.centerY, keyPaint)
+        canvas.drawLine(key.centerX + arm, key.centerY, key.centerX - arm * 0.5f, key.centerY, keyPaint)
+        keyPaint.style = Paint.Style.FILL
+        bubblePath.reset()
+        bubblePath.moveTo(key.centerX - arm, key.centerY)
+        bubblePath.lineTo(key.centerX - arm * 0.35f, key.centerY - arm * 0.55f)
+        bubblePath.lineTo(key.centerX - arm * 0.35f, key.centerY + arm * 0.55f)
+        bubblePath.close()
+        canvas.drawPath(bubblePath, keyPaint)
+    }
+
     // ── typing ─────────────────────────────────────────────────────────────
 
     private fun drawTypingIndicator(
@@ -534,5 +677,8 @@ class ChatRenderer(
         private const val OPACITY_FRACTION = 0.33f
         private const val RISE_END = 0.3f
         private const val FALL_END = 0.6f
+
+        /** Half-size of the drawn key glyphs, as a fraction of a key's height. */
+        private const val GLYPH_ARM = 0.17f
     }
 }

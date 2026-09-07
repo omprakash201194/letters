@@ -253,4 +253,12 @@ class ChatMetrics(val density: Float) {
     val inputFieldPad = dp(ChatTheme.INPUT_FIELD_PAD_DP)
     val sendButtonDiameter = dp(ChatTheme.SEND_BUTTON_DIAMETER_DP)
     val caretWidth = dp(ChatTheme.CARET_WIDTH_DP)
+
+    val keyTextSize = dp(ChatTheme.KEY_TEXT_SIZE_SP)
+    val keyHeight = dp(ChatTheme.KEY_HEIGHT_DP)
+    val keyGap = dp(ChatTheme.KEY_GAP_DP)
+    val keyRadius = dp(ChatTheme.KEY_RADIUS_DP)
+    val keyboardPadHorizontal = dp(ChatTheme.KEYBOARD_PAD_HORIZONTAL_DP)
+    val keyboardPadTop = dp(ChatTheme.KEYBOARD_PAD_TOP_DP)
+    val keyboardPadBottom = dp(ChatTheme.KEYBOARD_PAD_BOTTOM_DP)
 }

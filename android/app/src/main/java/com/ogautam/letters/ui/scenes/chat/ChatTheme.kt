@@ -100,6 +100,31 @@ object ChatTheme {
     const val SEND_BUTTON_DIAMETER_DP = 44f
     const val SEND_BUTTON = HEADER
 
+    /**
+     * The on-screen keyboard. It is the reason your unsent words are on the screen at all,
+     * so it rises with them and leaves when they are taken back — unlike the input bar,
+     * which is always there. It is nobody else's keyboard: you never see theirs.
+     */
+    const val KEYBOARD_GROUND = 0xFFD1D5DB.toInt()
+    const val KEY_FACE = Color.WHITE
+    /** Shift, backspace and the symbol key sit back a shade, as they do on a real one. */
+    const val KEY_FACE_MUTED = 0xFFAFB6BF.toInt()
+    /** Dark enough to read as pressed on a white key and on a muted one. */
+    const val KEY_FACE_PRESSED = 0xFF7C8A99.toInt()
+    const val KEY_TEXT = 0xFF202124.toInt()
+    const val KEY_GLYPH = 0xFF1F2933.toInt()
+    const val KEY_RETURN = HEADER
+    const val KEY_TEXT_SIZE_SP = 15f
+    const val KEY_HEIGHT_DP = 42f
+    const val KEY_GAP_DP = 4f
+    const val KEY_RADIUS_DP = 4f
+    const val KEYBOARD_PAD_HORIZONTAL_DP = 3f
+    const val KEYBOARD_PAD_TOP_DP = 6f
+    const val KEYBOARD_PAD_BOTTOM_DP = 8f
+
+    /** How long it takes to slide into place, and out again. */
+    const val KEYBOARD_SLIDE_MS = 220L
+
     /** The dashed edge on a message that was written and never sent. */
     const val GHOST_OUTLINE = 0xFF9AA0A6.toInt()
 
