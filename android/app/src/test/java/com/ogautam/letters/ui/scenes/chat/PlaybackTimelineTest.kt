@@ -191,6 +191,31 @@ class PlaybackTimelineTest {
         assertEquals(0, timeline.stateAt(step.bubbleAtMs + 10).visibleCount)
     }
 
+    /**
+     * The bug this guards: the end of an unsent beat leaves nothing on the screen, so
+     * scrubbing to it settled a raised keyboard over an empty input bar — the one beat in
+     * the scene the viewer could never pause on and read.
+     */
+    @Test
+    fun `pausing on an unsent beat shows the words it is about, held`() {
+        val text = "i never stopped thinking about you"
+        val messages = listOf(
+            message("are you awake", outgoing = false, 0),
+            message(text, outgoing = true, 1).copy(unsent = true),
+            message("goodnight", outgoing = false, 2),
+        )
+        val timeline = PlaybackTimeline(messages, PlaySpeed.NORMAL)
+
+        val state = timeline.stateAt(timeline.timeAtIndex(2))
+
+        assertEquals(text, state.composing)
+        assertEquals(1f, state.keyboardFraction, 0.001f)
+        // And the progress counter says the beat the viewer asked for, not the one before.
+        assertEquals(2, state.playedCount)
+        // The words were never sent, so they are still not a bubble.
+        assertEquals(1, state.visibleCount)
+    }
+
     @Test
     fun `the keyboard is up while your own unsent words are, and only then`() {
         val messages = listOf(message("i miss you", outgoing = true, 0).copy(unsent = true))

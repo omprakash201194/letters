@@ -35,7 +35,19 @@ data class TimelineStep(
     /** For an unsent message: when they start being erased. */
     val eraseFromMs: Long? = null,
     val unsent: Boolean = false,
-)
+) {
+    /**
+     * The instant that stands for this beat while playback is paused on it — what the
+     * viewer means by "show me message five".
+     *
+     * A bubble is settled once its text is all there. An unsent message is settled while it
+     * is being held: the words written and not yet taken back, which is the whole of what
+     * the beat is about. Its own end is no use for that — it leaves nothing on the screen,
+     * so scrubbing there froze a raised keyboard over an empty input bar and never showed
+     * the words at all.
+     */
+    val settledAtMs: Long get() = if (unsent) eraseFromMs ?: revealDoneAtMs else revealDoneAtMs
+}
 
 /** What the renderer needs to draw a single instant. */
 data class PlaybackState(
@@ -133,7 +145,7 @@ class PlaybackTimeline(
     fun timeAtIndex(index: Int): Long = when {
         index <= 0 -> 0L
         index >= steps.size -> totalMs
-        else -> steps[index - 1].revealDoneAtMs
+        else -> steps[index - 1].settledAtMs
     }
 
     fun stateAt(timeMs: Long): PlaybackState {
@@ -154,6 +166,10 @@ class PlaybackTimeline(
                     played++
                     continue
                 }
+                // reason: the beat has happened once the words were all there — the taking
+                // back is its aftermath. Counting it only at the end left the progress bar
+                // a beat behind whatever the viewer had just scrubbed to.
+                if (step.eraseFromMs != null && timeMs >= step.eraseFromMs) played++
                 composing = composingTextAt(step, message, timeMs)
                 if (composing != null && !message.outgoing) composing = null
                 erasing = composing != null && step.eraseFromMs != null && timeMs >= step.eraseFromMs

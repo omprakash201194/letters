@@ -167,7 +167,7 @@ One rule drives both. For an incoming message, show the sender name label **and*
 ### Other rules
 - Deleting a character also deletes all of their messages.
 - Messages can be deleted but not edited or reordered.
-- Progress bar scrubbing jumps to a message boundary, stops playback, and shows that message settled — not at the start of its pop-in, which with playback paused would never finish.
+- Progress bar scrubbing jumps to a message boundary, stops playback, and shows that message settled — not at the start of its pop-in, which with playback paused would never finish. An unsent message settles while it is being **held**: written out, keyboard up, not yet taken back. Its own end leaves nothing on the screen, so landing there showed a raised keyboard over an empty input bar and never the words — the one beat you could not pause on and read.
 
 ### The denormalised sender fields
 A message carries a snapshot of its sender's name, colour and avatar so playback stays correct
